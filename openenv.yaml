@@ -1,0 +1,11 @@
+name: CloudFinOps-Env
+description: An RL environment combining cloud cost-optimization with SLA incident management and simulated text-chat.
+version: 1.0.0
+entrypoint: env.server:app
+tasks:
+  - id: "easy"
+    name: "Zombie Cleanup"
+  - id: "medium"
+    name: "The CTO Budget Squeeze"
+  - id: "hard"
+    name: "Black Friday Chaos"
