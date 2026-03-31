@@ -1,33 +1,40 @@
 #!/usr/bin/env python3
 """
-pre_validation.py — OpenEnv Pre-Submission Validator (Python)
+pre_validation.py — CloudFinOps-Env Validation Suite
 
-Runs the full hackathon pre-submission checklist:
-  1. HF Space deploys — ping /reset and verify 200
-  2. OpenEnv spec compliance — validate openenv.yaml, typed models, step()/reset()/state()
-  3. Dockerfile builds — run `docker build`
-  4. Baseline reproduces — run inference.py end-to-end
-  5. 3+ tasks with graders — verify each task returns a score in [0.0, 1.0]
+Runs the hackathon compliance checklist against the environment:
+  1. Environment variables configured
+  2. OpenEnv spec compliance (openenv.yaml, Pydantic models, endpoints)
+  3. Dockerfile integrity
+  4. Inference script compliance (OpenAI Client, env vars)
+  5. Task graders produce valid scores in [0.0, 1.0]
 
 Usage:
-  python pre_validation.py [--space-url URL] [--repo-dir DIR] [--skip-docker] [--skip-space]
+  python pre_validation.py                          # validate current directory
+  python pre_validation.py --skip-docker            # skip Docker build
+  python pre_validation.py --space-url URL          # also ping a deployed HF Space
 
-Environment Variables:
-  API_BASE_URL   The API endpoint for the LLM
-  MODEL_NAME     The model identifier to use for inference
-  HF_TOKEN       Your Hugging Face / API key
+Configuration:
+  All settings are read from the .env file automatically.
+  See .env.example for the required variables.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import subprocess
 import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+# Auto-load .env file if present
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 # ---------------------------------------------------------------------------
 # ANSI colours (disabled when not a TTY)
@@ -36,10 +43,12 @@ if sys.stdout.isatty():
     RED = "\033[0;31m"
     GREEN = "\033[0;32m"
     YELLOW = "\033[1;33m"
+    CYAN = "\033[0;36m"
     BOLD = "\033[1m"
+    DIM = "\033[2m"
     NC = "\033[0m"
 else:
-    RED = GREEN = YELLOW = BOLD = NC = ""
+    RED = GREEN = YELLOW = CYAN = BOLD = DIM = NC = ""
 
 
 # ---------------------------------------------------------------------------
@@ -57,12 +66,12 @@ class ValidationResult:
         self.results.append((name, ok, detail))
         if ok:
             self.passed += 1
-            print(f"  {GREEN}✅ PASSED{NC} — {name}")
+            print(f"  {GREEN}✅ PASS{NC}  {name}")
         else:
             self.failed += 1
-            print(f"  {RED}❌ FAILED{NC} — {name}")
+            print(f"  {RED}❌ FAIL{NC}  {name}")
         if detail:
-            print(f"     {detail}")
+            print(f"          {DIM}{detail}{NC}")
 
     @property
     def all_passed(self) -> bool:
@@ -70,54 +79,38 @@ class ValidationResult:
 
 
 def _header(title: str) -> None:
-    print(f"\n{BOLD}{'=' * 60}{NC}")
-    print(f"{BOLD}  {title}{NC}")
-    print(f"{BOLD}{'=' * 60}{NC}\n")
+    print(f"\n{CYAN}{BOLD}{'━' * 60}{NC}")
+    print(f"{CYAN}{BOLD}  {title}{NC}")
+    print(f"{CYAN}{BOLD}{'━' * 60}{NC}\n")
 
 
 def _section(title: str) -> None:
-    print(f"\n{BOLD}--- {title} ---{NC}")
+    print(f"\n{BOLD}▸ {title}{NC}")
 
 
 # ---------------------------------------------------------------------------
-# Check 1: HF Space Ping
+# Check 1: Environment Variables
 # ---------------------------------------------------------------------------
-def check_space_ping(space_url: str, vr: ValidationResult) -> None:
-    _section("Check 1/5: HF Space Ping (/reset)")
-
-    try:
-        import httpx
-    except ImportError:
-        vr.record("httpx import", False, "Install httpx: pip install httpx")
-        return
-
-    url = f"{space_url.rstrip('/')}/reset"
-    try:
-        with httpx.Client(timeout=30.0) as client:
-            resp = client.post(url, json={"task_id": "easy"})
-            if resp.status_code == 200:
-                body = resp.json()
-                has_servers = "servers" in body
-                vr.record(
-                    "HF Space /reset returns 200",
-                    True,
-                    f"Response contains 'servers': {has_servers}",
-                )
+def check_env_vars(vr: ValidationResult) -> None:
+    _section("Check 1 — Environment Variables")
+    for var in ("API_BASE_URL", "MODEL_NAME", "HF_TOKEN"):
+        val = os.getenv(var)
+        if val:
+            # Mask sensitive values
+            if var == "HF_TOKEN":
+                display = val[:4] + "****" + val[-4:] if len(val) > 8 else "****"
             else:
-                vr.record(
-                    "HF Space /reset returns 200",
-                    False,
-                    f"Got HTTP {resp.status_code}",
-                )
-    except Exception as exc:
-        vr.record("HF Space /reset reachable", False, str(exc))
+                display = val
+            vr.record(f"{var} is set", True, display)
+        else:
+            vr.record(f"{var} is set", False, f"Set in .env or export {var}=<value>")
 
 
 # ---------------------------------------------------------------------------
 # Check 2: OpenEnv Spec Compliance
 # ---------------------------------------------------------------------------
 def check_openenv_spec(repo_dir: Path, vr: ValidationResult) -> None:
-    _section("Check 2/5: OpenEnv Spec Compliance")
+    _section("Check 2 — OpenEnv Spec Compliance")
 
     # 2a. openenv.yaml exists and is valid
     yaml_path = repo_dir / "openenv.yaml"
@@ -128,12 +121,13 @@ def check_openenv_spec(repo_dir: Path, vr: ValidationResult) -> None:
     try:
         import yaml  # type: ignore[import-untyped]
     except ImportError:
+        # Fallback: basic text parsing if PyYAML not installed
         try:
             content = yaml_path.read_text()
             if not content.strip():
                 vr.record("openenv.yaml parseable", False, "File is empty")
                 return
-            vr.record("openenv.yaml parseable", True, "(PyYAML not installed — basic check only)")
+            vr.record("openenv.yaml parseable", True, "(PyYAML not installed — basic check)")
             tasks = []
             for line in content.splitlines():
                 stripped = line.strip()
@@ -143,7 +137,7 @@ def check_openenv_spec(repo_dir: Path, vr: ValidationResult) -> None:
             if len(tasks) >= 3:
                 vr.record("openenv.yaml has 3+ tasks", True, f"Tasks: {tasks}")
             else:
-                vr.record("openenv.yaml has 3+ tasks", False, f"Found {len(tasks)} tasks: {tasks}")
+                vr.record("openenv.yaml has 3+ tasks", False, f"Found {len(tasks)}: {tasks}")
             return
         except Exception as exc:
             vr.record("openenv.yaml parseable", False, str(exc))
@@ -178,14 +172,14 @@ def check_openenv_spec(repo_dir: Path, vr: ValidationResult) -> None:
         has_observation = "class Observation" in models_src
         has_reward = "class RewardInfo" in models_src or "class Reward" in models_src
         vr.record(
-            "Typed Pydantic models (Action, Observation, Reward)",
+            "Pydantic models (Action, Observation, Reward)",
             has_basemodel and has_action and has_observation and has_reward,
             f"BaseModel={has_basemodel}, Action={has_action}, Observation={has_observation}, Reward={has_reward}",
         )
     else:
         vr.record("env/models.py exists", False)
 
-    # 2c. Server exposes step(), reset(), state()
+    # 2c. Server exposes /step, /reset, /state
     server_path = repo_dir / "env" / "server.py"
     if server_path.exists():
         srv_src = server_path.read_text()
@@ -202,21 +196,21 @@ def check_openenv_spec(repo_dir: Path, vr: ValidationResult) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Check 3: Dockerfile Builds
+# Check 3: Dockerfile
 # ---------------------------------------------------------------------------
 def check_docker_build(repo_dir: Path, vr: ValidationResult) -> None:
-    _section("Check 3/5: Dockerfile Builds")
+    _section("Check 3 — Dockerfile Build")
 
     dockerfile = repo_dir / "Dockerfile"
     if not dockerfile.exists():
         dockerfile = repo_dir / "server" / "Dockerfile"
     if not dockerfile.exists():
-        vr.record("Dockerfile exists", False, "No Dockerfile in repo root or server/")
+        vr.record("Dockerfile exists", False, "Not found in repo root or server/")
         return
 
     vr.record("Dockerfile exists", True, str(dockerfile))
 
-    # Check docker is available
+    # Verify Docker is available
     try:
         result = subprocess.run(
             ["docker", "version", "--format", "{{.Server.Version}}"],
@@ -225,9 +219,9 @@ def check_docker_build(repo_dir: Path, vr: ValidationResult) -> None:
             timeout=10,
         )
         if result.returncode != 0:
-            vr.record("Docker available", False, "docker command failed")
+            vr.record("Docker daemon running", False, "docker command failed")
             return
-        vr.record("Docker available", True, f"Docker {result.stdout.strip()}")
+        vr.record("Docker daemon running", True, f"Version {result.stdout.strip()}")
     except FileNotFoundError:
         vr.record("Docker available", False, "docker not found in PATH")
         return
@@ -235,8 +229,8 @@ def check_docker_build(repo_dir: Path, vr: ValidationResult) -> None:
         vr.record("Docker available", False, str(exc))
         return
 
-    # Build
-    print(f"  Building Docker image (this may take a few minutes)...")
+    # Build image
+    print(f"          {DIM}Building image (this may take a few minutes)...{NC}")
     build_dir = str(dockerfile.parent)
     try:
         result = subprocess.run(
@@ -251,50 +245,50 @@ def check_docker_build(repo_dir: Path, vr: ValidationResult) -> None:
             last_lines = "\n".join(result.stderr.splitlines()[-10:])
             vr.record("Docker build succeeds", False, f"Last output:\n{last_lines}")
     except subprocess.TimeoutExpired:
-        vr.record("Docker build succeeds", False, "Build timed out (600s)")
+        vr.record("Docker build succeeds", False, "Timed out after 600s")
     except Exception as exc:
         vr.record("Docker build succeeds", False, str(exc))
 
 
 # ---------------------------------------------------------------------------
-# Check 4: Baseline Reproduces
+# Check 4: Inference Script
 # ---------------------------------------------------------------------------
-def check_baseline_reproduces(repo_dir: Path, vr: ValidationResult) -> None:
-    _section("Check 4/5: Baseline Inference Script")
+def check_inference_script(repo_dir: Path, vr: ValidationResult) -> None:
+    _section("Check 4 — Inference Script (inference.py)")
 
     inference_path = repo_dir / "inference.py"
     if not inference_path.exists():
-        vr.record("inference.py exists in root", False)
+        vr.record("inference.py exists in project root", False)
         return
 
-    vr.record("inference.py exists in root", True)
+    vr.record("inference.py exists in project root", True)
 
     src = inference_path.read_text()
+
+    # Must use OpenAI Client
     uses_openai = "from openai" in src or "import openai" in src
+    vr.record("Uses OpenAI Client", uses_openai)
+
+    # Must reference the 3 mandatory env vars
     uses_api_base = "API_BASE_URL" in src
     uses_model_name = "MODEL_NAME" in src
     uses_hf_token = "HF_TOKEN" in src
-
     vr.record(
-        "inference.py uses OpenAI client",
-        uses_openai,
-        f"openai import found: {uses_openai}",
-    )
-    vr.record(
-        "inference.py references required env vars",
+        "References API_BASE_URL, MODEL_NAME, HF_TOKEN",
         uses_api_base and uses_model_name and uses_hf_token,
         f"API_BASE_URL={uses_api_base}, MODEL_NAME={uses_model_name}, HF_TOKEN={uses_hf_token}",
     )
 
-    has_main = 'if __name__' in src or "def main" in src
-    vr.record("inference.py has main entry point", has_main)
+    # Must have an entry point
+    has_main = "if __name__" in src or "def main" in src
+    vr.record("Has main entry point", has_main)
 
 
 # ---------------------------------------------------------------------------
-# Check 5: 3+ Tasks with Graders
+# Check 5: Task Graders
 # ---------------------------------------------------------------------------
-def check_tasks_and_graders(repo_dir: Path, space_url: Optional[str], vr: ValidationResult) -> None:
-    _section("Check 5/5: 3+ Tasks with Graders (score in 0.0–1.0)")
+def check_tasks_and_graders(repo_dir: Path, vr: ValidationResult) -> None:
+    _section("Check 5 — Task Graders (3 tasks, scores in 0.0–1.0)")
 
     engine_path = repo_dir / "env" / "engine.py"
     if not engine_path.exists():
@@ -320,6 +314,7 @@ def check_tasks_and_graders(repo_dir: Path, space_url: Optional[str], vr: Valida
                 obs = engine.reset(task_id)
                 assert obs is not None, "reset() returned None"
 
+                # Run through with IGNORE actions to test grader
                 for _ in range(20):
                     obs, reward, done, info = engine.step(
                         Action(command="IGNORE", target_id=None, reply="")
@@ -330,7 +325,7 @@ def check_tasks_and_graders(repo_dir: Path, space_url: Optional[str], vr: Valida
                 score = engine.grade()
                 in_range = 0.0 <= score <= 1.0
                 vr.record(
-                    f"Task '{task_id}' grader score in [0.0, 1.0]",
+                    f"Task '{task_id}' → score in [0.0, 1.0]",
                     in_range,
                     f"Score = {score:.4f}",
                 )
@@ -341,7 +336,7 @@ def check_tasks_and_graders(repo_dir: Path, space_url: Optional[str], vr: Valida
                 vr.record(f"Task '{task_id}' runs without error", False, str(exc))
 
         vr.record(
-            "At least 3 tasks produce valid grader scores",
+            "All 3 tasks produce valid grader scores",
             valid_tasks >= 3,
             f"{valid_tasks}/3 tasks passed",
         )
@@ -354,24 +349,44 @@ def check_tasks_and_graders(repo_dir: Path, space_url: Optional[str], vr: Valida
 
 
 # ---------------------------------------------------------------------------
-# Check environment variables
+# Bonus: HF Space Ping (optional)
 # ---------------------------------------------------------------------------
-def check_env_vars(vr: ValidationResult) -> None:
-    _section("Environment Variables Check")
-    for var in ("API_BASE_URL", "MODEL_NAME", "HF_TOKEN"):
-        val = os.getenv(var)
-        if val:
-            display = val[:8] + "..." if len(val) > 12 else val
-            vr.record(f"${var} is set", True, f"Value: {display}")
-        else:
-            vr.record(f"${var} is set", False, f"Set it: export {var}=<value>")
+def check_space_ping(space_url: str, vr: ValidationResult) -> None:
+    _section("Bonus — HF Space Ping (/reset)")
+
+    try:
+        import httpx
+    except ImportError:
+        vr.record("httpx import", False, "pip install httpx")
+        return
+
+    url = f"{space_url.rstrip('/')}/reset"
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.post(url, json={"task_id": "easy"})
+            if resp.status_code == 200:
+                body = resp.json()
+                has_servers = "servers" in body
+                vr.record(
+                    "HF Space /reset returns 200",
+                    True,
+                    f"Response has 'servers': {has_servers}",
+                )
+            else:
+                vr.record(
+                    "HF Space /reset returns 200",
+                    False,
+                    f"Got HTTP {resp.status_code}",
+                )
+    except Exception as exc:
+        vr.record("HF Space reachable", False, str(exc))
 
 
 # ---------------------------------------------------------------------------
-# Resource check
+# Bonus: Resource Constraints
 # ---------------------------------------------------------------------------
 def check_resource_constraints(repo_dir: Path, vr: ValidationResult) -> None:
-    _section("Resource Constraints")
+    _section("Bonus — Resource Constraints")
 
     req_path = repo_dir / "requirements.txt"
     if req_path.exists():
@@ -381,7 +396,7 @@ def check_resource_constraints(repo_dir: Path, vr: ValidationResult) -> None:
         vr.record(
             "No heavy ML frameworks in requirements.txt",
             len(found_heavy) == 0,
-            f"Heavy deps found: {found_heavy}" if found_heavy else "Clean — lightweight deps only",
+            f"Found: {found_heavy}" if found_heavy else "Lightweight deps only",
         )
     else:
         vr.record("requirements.txt exists", False)
@@ -389,7 +404,7 @@ def check_resource_constraints(repo_dir: Path, vr: ValidationResult) -> None:
     dockerfile = repo_dir / "Dockerfile"
     if dockerfile.exists():
         df_src = dockerfile.read_text()
-        has_expose = "EXPOSE 8000" in df_src or "EXPOSE  8000" in df_src
+        has_expose = "EXPOSE 8000" in df_src
         has_cmd = "uvicorn" in df_src
         vr.record("Dockerfile exposes port 8000", has_expose)
         vr.record("Dockerfile runs uvicorn", has_cmd)
@@ -400,75 +415,65 @@ def check_resource_constraints(repo_dir: Path, vr: ValidationResult) -> None:
 # ---------------------------------------------------------------------------
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="OpenEnv Pre-Submission Validator",
+        description="CloudFinOps-Env — Validation Suite",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python pre_validation.py                     # validate current directory
+  python pre_validation.py --skip-docker       # skip Docker build
+  python pre_validation.py --space-url URL     # also ping a deployed Space
+        """,
     )
     parser.add_argument(
         "--space-url",
         default=os.getenv("SPACE_URL", ""),
-        help="HuggingFace Space URL (e.g. https://your-space.hf.space). "
-        "Skipped if not provided.",
+        help="HuggingFace Space URL to ping (optional)",
     )
     parser.add_argument(
         "--repo-dir",
-        default="./cloudfinops-env",
-        help="Path to repo directory (default: ./cloudfinops-env)",
+        default=".",
+        help="Path to the project directory (default: current directory)",
     )
     parser.add_argument(
         "--skip-docker",
         action="store_true",
         help="Skip Docker build check",
     )
-    parser.add_argument(
-        "--skip-space",
-        action="store_true",
-        help="Skip HF Space ping check",
-    )
     args = parser.parse_args()
 
     repo_dir = Path(args.repo_dir).resolve()
     if not repo_dir.is_dir():
-        print(f"{RED}Error:{NC} Repository directory not found: {repo_dir}")
+        print(f"{RED}Error:{NC} Directory not found: {repo_dir}")
         sys.exit(1)
 
     vr = ValidationResult()
 
-    _header("OpenEnv Pre-Submission Validator")
-    print(f"  Repo:      {repo_dir}")
-    print(f"  Space URL: {args.space_url or '(not provided — skipping ping)'}")
+    _header("CloudFinOps-Env — Validation Suite")
+    print(f"  Project:   {repo_dir}")
     print(f"  Time:      {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    if args.space_url:
+        print(f"  Space URL: {args.space_url}")
 
-    # Check 0: Environment Variables
+    # ---- Core Checks (1–5) ----
     check_env_vars(vr)
-
-    # Check 1: HF Space Ping
-    if args.space_url and not args.skip_space:
-        check_space_ping(args.space_url, vr)
-    else:
-        print(f"\n{YELLOW}  ⏭  Skipping HF Space ping (no --space-url provided){NC}")
-
-    # Check 2: OpenEnv Spec Compliance
     check_openenv_spec(repo_dir, vr)
 
-    # Check 3: Dockerfile Builds
     if not args.skip_docker:
         check_docker_build(repo_dir, vr)
     else:
         print(f"\n{YELLOW}  ⏭  Skipping Docker build (--skip-docker){NC}")
 
-    # Check 4: Baseline Reproduces
-    check_baseline_reproduces(repo_dir, vr)
+    check_inference_script(repo_dir, vr)
+    check_tasks_and_graders(repo_dir, vr)
 
-    # Check 5: 3+ Tasks with Graders
-    check_tasks_and_graders(repo_dir, args.space_url, vr)
-
-    # Resource Constraints
+    # ---- Bonus Checks ----
     check_resource_constraints(repo_dir, vr)
 
-    # ---------------------------------------------------------------------------
-    # Summary
-    # ---------------------------------------------------------------------------
-    _header("VALIDATION SUMMARY")
+    if args.space_url:
+        check_space_ping(args.space_url, vr)
+
+    # ---- Summary ----
+    _header("RESULTS")
     total = vr.passed + vr.failed
     print(f"  {GREEN}Passed: {vr.passed}/{total}{NC}")
     if vr.failed:
@@ -479,13 +484,13 @@ def main() -> None:
             if not ok:
                 print(f"    {RED}✗{NC} {name}")
                 if detail:
-                    print(f"      {detail}")
+                    print(f"      {DIM}{detail}{NC}")
 
     print()
     if vr.all_passed:
-        print(f"  {GREEN}{BOLD}🎉 All checks passed! Your submission is ready.{NC}")
+        print(f"  {GREEN}{BOLD}✅ All {total} checks passed.{NC}")
     else:
-        print(f"  {RED}{BOLD}⛔ Fix the above failures before submitting.{NC}")
+        print(f"  {RED}{BOLD}⛔ {vr.failed} check(s) failed. See details above.{NC}")
 
     sys.exit(0 if vr.all_passed else 1)
 
