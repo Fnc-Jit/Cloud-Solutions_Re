@@ -2,9 +2,12 @@
 
 Runs an LLM agent against the CloudFinOps environment through /reset and /step.
 Uses the `openai` SDK and environment variables:
-  - OPENAI_API_KEY (or HF_TOKEN) for authentication
-  - API_BASE_URL for the inference endpoint
-  - MODEL_NAME for the model to evaluate
+  - API_BASE_URL  The API endpoint for the LLM.
+  - MODEL_NAME    The model identifier to use for inference.
+  - HF_TOKEN      Your Hugging Face / API key.
+
+The inference script must be named `inference.py` and placed in the root directory.
+Participants must use OpenAI Client for all LLM calls using above variables.
 """
 
 from __future__ import annotations
@@ -12,26 +15,36 @@ from __future__ import annotations
 import json
 import os
 import sys
-from typing import Any, Dict
+import time
+from typing import Any, Dict, List
 
 import httpx
 from openai import OpenAI
 
 # ---------------------------------------------------------------------------
-# Configuration
+# Configuration (from environment variables — mandatory per hackathon rules)
 # ---------------------------------------------------------------------------
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY", "")
+MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-3.3-70B-Instruct")
+
+# CloudFinOps environment URL (local Docker or HF Space)
 ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:8000")
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "tgi")
-API_KEY = os.getenv("OPENAI_API_KEY") or os.getenv("HF_TOKEN", "dummy")
+
 MAX_STEPS = 10
+TASKS: List[str] = ["easy", "medium", "hard"]
 
+# OpenAI client — mandatory per hackathon rules
 client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-http = httpx.Client(timeout=30.0)
 
-TASKS = ["easy", "medium", "hard"]
+# HTTP client for environment REST calls
+http = httpx.Client(timeout=60.0)
 
-SYSTEM_PROMPT = """You are an expert cloud infrastructure engineer managing a fleet of servers.
+# ---------------------------------------------------------------------------
+# System Prompt
+# ---------------------------------------------------------------------------
+SYSTEM_PROMPT = """\
+You are an expert cloud infrastructure engineer managing a fleet of servers.
 Your goal is to optimize costs while preventing SLA breaches (any server hitting 100% CPU).
 
 You will receive a JSON observation containing:
@@ -55,9 +68,13 @@ Rules:
 - UPSCALE servers approaching 100% CPU to prevent SLA breach (takes effect next step).
 - Never let any running server reach 100% CPU.
 - Respond to inbox messages concisely in the reply field.
+- Only one action per step. Choose the most impactful action.
 """
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 def parse_action(raw: str) -> Dict[str, Any]:
     """Extract a JSON action from LLM output, handling markdown fences."""
     text = raw.strip()
@@ -77,15 +94,18 @@ def parse_action(raw: str) -> Dict[str, Any]:
         start = text.find("{")
         end = text.rfind("}") + 1
         if start != -1 and end > start:
-            return json.loads(text[start:end])
+            try:
+                return json.loads(text[start:end])
+            except json.JSONDecodeError:
+                pass
         return {"command": "IGNORE", "target_id": None, "reply": ""}
 
 
 def run_task(task_id: str) -> float:
-    """Run a single task and return the grader score."""
-    print(f"\n{'='*60}")
+    """Run a single task against the environment and return the grader score."""
+    print(f"\n{'=' * 60}")
     print(f"  Task: {task_id.upper()}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     # Reset environment
     resp = http.post(f"{ENV_BASE_URL}/reset", json={"task_id": task_id})
@@ -94,8 +114,10 @@ def run_task(task_id: str) -> float:
 
     for step_num in range(1, MAX_STEPS + 1):
         obs_json = json.dumps(obs, indent=2)
+        budget = obs.get("budget_remaining", 0)
+        traffic = obs.get("traffic_load", 0)
         print(f"\n--- Step {step_num} ---")
-        print(f"  Budget: ${obs.get('budget_remaining', '?'):.2f}  |  Traffic: {obs.get('traffic_load', '?')}%")
+        print(f"  Budget: ${budget:.2f}  |  Traffic: {traffic}%")
 
         # Ask LLM for action
         try:
@@ -103,7 +125,13 @@ def run_task(task_id: str) -> float:
                 model=MODEL_NAME,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Current observation:\n{obs_json}\n\nChoose your action:"},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Current observation:\n{obs_json}\n\n"
+                            "Choose your next action (respond with JSON only):"
+                        ),
+                    },
                 ],
                 temperature=0.1,
                 max_tokens=300,
@@ -114,7 +142,9 @@ def run_task(task_id: str) -> float:
             raw_reply = '{"command": "IGNORE", "target_id": null, "reply": ""}'
 
         action = parse_action(raw_reply)
-        print(f"  Action: {action.get('command', 'IGNORE')} -> {action.get('target_id', 'N/A')}")
+        cmd = action.get("command", "IGNORE")
+        target = action.get("target_id", "N/A")
+        print(f"  Action: {cmd} -> {target}")
 
         # Step environment
         resp = http.post(f"{ENV_BASE_URL}/step", json=action)
@@ -131,18 +161,26 @@ def run_task(task_id: str) -> float:
             print(f"\n  ✅ FINAL SCORE: {score}")
             return score
 
-    # If max steps reached without done, get final state
-    print(f"\n  ⚠️ Max steps reached.")
+    print("\n  ⚠️  Max steps reached.")
     return 0.0
 
 
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 def main() -> None:
+    start_time = time.time()
+
     print("=" * 60)
     print("  CloudFinOps-Env Baseline Evaluator")
     print("=" * 60)
-    print(f"  Model: {MODEL_NAME}")
-    print(f"  API:   {API_BASE_URL}")
-    print(f"  Env:   {ENV_BASE_URL}")
+    print(f"  Model:     {MODEL_NAME}")
+    print(f"  API:       {API_BASE_URL}")
+    print(f"  Env:       {ENV_BASE_URL}")
+    print(f"  Max Steps: {MAX_STEPS}")
+
+    if not API_KEY:
+        print("\n  ⚠️  WARNING: HF_TOKEN / API_KEY not set. LLM calls may fail.")
 
     scores: Dict[str, float] = {}
     for task_id in TASKS:
@@ -152,14 +190,23 @@ def main() -> None:
             print(f"  ❌ Task '{task_id}' failed: {exc}")
             scores[task_id] = 0.0
 
-    print(f"\n{'='*60}")
+    elapsed = time.time() - start_time
+    print(f"\n{'=' * 60}")
     print("  FINAL RESULTS")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     for tid, score in scores.items():
-        print(f"  {tid:>8s}: {score:.4f}")
+        status = "✅" if score > 0.0 else "❌"
+        print(f"  {status} {tid:>8s}: {score:.4f}")
     avg = sum(scores.values()) / len(scores) if scores else 0.0
-    print(f"  {'AVERAGE':>8s}: {avg:.4f}")
-    print(f"{'='*60}")
+    print(f"  {'AVERAGE':>10s}: {avg:.4f}")
+    print(f"  {'TIME':>10s}: {elapsed:.1f}s")
+    print(f"{'=' * 60}")
+
+    # Validate all scores are in [0.0, 1.0]
+    for tid, score in scores.items():
+        assert 0.0 <= score <= 1.0, f"Score for {tid} out of range: {score}"
+
+    print("\n  ✅ All scores within valid 0.0–1.0 range.")
 
 
 if __name__ == "__main__":
