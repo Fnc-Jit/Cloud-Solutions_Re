@@ -1,7 +1,10 @@
 """Mandatory baseline evaluation script for the OpenEnv Hackathon.
 
 Runs an LLM agent against the CloudFinOps environment through /reset and /step.
-Uses the `openai` SDK and environment variables API_BASE_URL, MODEL_NAME, HF_TOKEN.
+Uses the `openai` SDK and environment variables:
+  - OPENAI_API_KEY (or HF_TOKEN) for authentication
+  - API_BASE_URL for the inference endpoint
+  - MODEL_NAME for the model to evaluate
 """
 
 from __future__ import annotations
@@ -20,10 +23,10 @@ from openai import OpenAI
 ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:8000")
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "tgi")
-HF_TOKEN = os.getenv("HF_TOKEN", "dummy")
+API_KEY = os.getenv("OPENAI_API_KEY") or os.getenv("HF_TOKEN", "dummy")
 MAX_STEPS = 10
 
-client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 http = httpx.Client(timeout=30.0)
 
 TASKS = ["easy", "medium", "hard"]

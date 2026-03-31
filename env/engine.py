@@ -187,18 +187,21 @@ class CloudFinOpsEngine:
                 self.incidents.append({"type": "SLA_BREACH", "server": s.id, "step": self.time_step})
                 reward -= 100.0
 
-        # 7. Budget overrun penalty
+        # 7. Per-step cost pressure (continuous signal over trajectory)
+        if step_cost > 3.0:
+            reward -= 1.0  # penalise high ongoing costs each step
+
+        # 8. Budget overrun penalty
         if self.budget_remaining < 0:
             reward -= 20.0
 
-        # 8. Check termination
+        # 9. Check termination
         if self.time_step >= MAX_STEPS or self.sla_breached or self.budget_remaining <= 0:
             self.done = True
 
         self._reward_accum += reward
 
-        # Normalise step reward to a rough 0‑1 hint (grader is authoritative)
-        info: Dict[str, Any] = {}
+        info: Dict[str, Any] = {"step_reward": reward, "cumulative_reward": self._reward_accum}
         if self.done:
             final_score = self.grade()
             info["grader_score"] = final_score
@@ -309,8 +312,9 @@ class CloudFinOpsEngine:
                     s.memory_util = round(_clamp(avg_mem), 1)
                 reward += 3.0
 
-        # Clear inbox after agent replies
-        if action.reply:
+        # Reward for responding to inbox (human-in-the-loop engagement)
+        if action.reply and self.inbox:
+            reward += 2.0
             self.inbox = []
 
         return reward
