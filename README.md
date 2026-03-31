@@ -6,53 +6,107 @@ A Reinforcement Learning environment that simulates real-world **cloud infrastru
 
 ---
 
-## ⚡ Quick Start for Judges
+## ⚡ Quick Start — 3 Steps
 
-> **One file to configure. Everything reads from it.**
+> **One file to configure. Everything reads from it automatically.**
 
-### Step 1 — Edit `.env.example` (the single config file)
+### Step 1 — Configure your credentials
 
-Open `.env.example` in the project root and fill in your 3 values:
+Copy the template and fill in your API key:
+
+```bash
+cp .env.example .env
+```
+
+Open `.env` and set your values:
 
 ```env
-API_BASE_URL=https://router.huggingface.co/v1
+# The API endpoint for the LLM (OpenAI-compatible)
+API_BASE_URL=https://api.openai.com/v1
+
+# The model identifier to use for inference
 MODEL_NAME=gpt-4o
+
+# Your Hugging Face / API key
 HF_TOKEN=hf_your_token_here
 ```
 
-Then copy it to `.env`:
+> **That's the only file you need to edit.** Both `inference.py` and Docker read from it automatically.
+
+---
+
+### Step 2 — Start the Environment Server
+
+#### Option A: Docker (Recommended)
 
 ```bash
-cp .env.example .env    # edit .env with your real values
+docker build -t cloudfinops-env .
+docker run --env-file .env -p 8000:8000 cloudfinops-env
 ```
 
-`inference.py` automatically loads this `.env` file at startup — **no manual exporting needed**.
+You should see the CloudFinOps banner and `Ready to accept connections ✓` in the terminal.
 
-### Step 2 — Install & Start the Environment Server
+#### Option B: Python (No Docker)
 
 ```bash
 pip install -r requirements.txt
 uvicorn env.server:app --host 0.0.0.0 --port 8000
 ```
 
-### Step 3 — Run the Evaluator
+---
+
+### Step 3 — Run the Baseline Evaluator
+
+Open a **new terminal** (keep the server running) and run:
 
 ```bash
 python inference.py
 ```
 
-That's it. The script will:
-- Auto-load `API_BASE_URL`, `MODEL_NAME`, and `HF_TOKEN` from `.env`
-- Initialize an **OpenAI Client** with those values
-- Run all 3 tasks (easy, medium, hard)
-- Print per-task scores and an overall average
+The script will:
+1. Auto-load `API_BASE_URL`, `MODEL_NAME`, and `HF_TOKEN` from your `.env` file
+2. Initialize an **OpenAI Client** using those values
+3. Run all 3 tasks (`easy`, `medium`, `hard`) against the environment
+4. Print per-task grader scores and an overall average
 
-### Docker (Alternative)
+**Expected output:**
+```
+============================================================
+  FINAL RESULTS
+============================================================
+  ✅     easy: 1.0000
+  ✅   medium: 0.6500
+  ✅     hard: 0.4200
+     AVERAGE: 0.6900
+============================================================
+```
+
+---
+
+### Step 4 (Optional) — Run Pre-Submission Validation
+
+From the **parent directory** of `cloudfinops-env/`:
 
 ```bash
-docker build -t cloudfinops-env .
-docker run --env-file .env -p 8000:8000 cloudfinops-env
+python pre_validation.py --repo-dir ./cloudfinops-env --skip-docker
 ```
+
+If everything passes, you'll see: **🎉 All checks passed!.**
+
+---
+
+## 🔐 Environment Variables
+
+All configuration lives in a single `.env` file. The table below documents every variable:
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `API_BASE_URL` | ✅ Yes | — | OpenAI-compatible API endpoint |
+| `MODEL_NAME` | ✅ Yes | — | Model identifier for inference |
+| `HF_TOKEN` | ✅ Yes | — | Hugging Face / API key |
+| `ENV_BASE_URL` | ❌ No | `http://localhost:8000` | Override the environment server URL |
+
+`inference.py` validates all three mandatory variables at startup and exits with a clear error if any are missing.
 
 ---
 
@@ -134,21 +188,21 @@ The reward function provides **continuous signal over the full trajectory**, not
 
 ## 🎮 The 3 Tasks
 
-### 🟢 Easy — *Zombie Cleanup* (Expected difficulty: Simple pattern matching)
+### 🟢 Easy — *Zombie Cleanup*
 - **Setup**: 10 servers — 7 active (25–55% CPU), 3 completely idle (0% CPU)
 - **Inbox**: "Ops Team: Please terminate unused servers to save costs."
 - **Objective**: Terminate the 3 idle servers without touching active ones
 - **Grading**: `score = (idle_terminated / 3) - (active_terminated × 0.25) - (0.5 if SLA breach)`
 - **Perfect Score**: Terminate `idle-0`, `idle-1`, `idle-2` → **1.0**
 
-### 🟡 Medium — *The CTO Budget Squeeze* (Expected difficulty: Multi-step optimization)
+### 🟡 Medium — *The CTO Budget Squeeze*
 - **Setup**: 12 over-provisioned servers at ~3–9% CPU across web/db/batch types
 - **Inbox**: "CTO: Cut costs by 50% immediately. No excuses."
 - **Objective**: Reduce spending by 50% without triggering any SLA breaches
 - **Grading**: `score = min(cost_saved% / 50%, 1.0) - (0.5 if SLA breach)`
 - **Challenge**: Downscaling increases CPU load 1.8× — must be strategic
 
-### 🔴 Hard — *Black Friday Chaos* (Expected difficulty: Dynamic multi-objective under pressure)
+### 🔴 Hard — *Black Friday Chaos*
 - **Setup**: 8 servers — DBs at 78–85% CPU (and climbing), web at 50–60%, batch at 10–20%
 - **Inbox**: "Marketing: Massive ad campaign going live RIGHT NOW!"
 - **Objective**: Prevent SLA failures while managing a tight $40 budget
@@ -169,7 +223,7 @@ The reward function provides **continuous signal over the full trajectory**, not
 
 ## 📊 Baseline Scores
 
-Baseline scores achieved using `gpt-4` with temperature 0.1 and structured JSON prompting:
+Baseline scores achieved using `gpt-4o` with temperature 0.1 and structured JSON prompting:
 
 | Task | Score | Notes |
 |------|-------|-------|
@@ -192,19 +246,6 @@ All graders output deterministic scores between **0.0** and **1.0**:
 
 ---
 
-## 🔐 Environment Variables Reference
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `API_BASE_URL` | ✅ Yes | — | OpenAI-compatible API endpoint |
-| `MODEL_NAME` | ✅ Yes | — | Model identifier for inference |
-| `HF_TOKEN` | ✅ Yes | — | Hugging Face / API key |
-| `ENV_BASE_URL` | ❌ No | `http://localhost:8000` | Environment server URL |
-
-All three mandatory variables are validated at startup. `inference.py` will exit with a clear error message if any are missing.
-
----
-
 ## 📁 Project Structure
 
 ```
@@ -216,7 +257,7 @@ cloudfinops-env/
 │   └── server.py             # FastAPI endpoints (/reset, /step, /state)
 ├── openenv.yaml              # OpenEnv metadata (3 tasks + required env vars)
 ├── inference.py              # Baseline LLM evaluator using OpenAI SDK
-├── .env.example              # Template for required environment variables
+├── .env.example              # ← Edit this one file with your credentials
 ├── requirements.txt          # Python dependencies
 ├── Dockerfile                # HF Spaces deployment container
 └── README.md                 # This file

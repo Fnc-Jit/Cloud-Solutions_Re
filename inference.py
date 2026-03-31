@@ -3,7 +3,7 @@
 Runs an LLM agent against the CloudFinOps environment through /reset and /step.
 Uses the `openai` SDK and the following MANDATORY environment variables:
 
-  API_BASE_URL  — The API endpoint for the LLM (e.g. https://router.huggingface.co/v1)
+  API_BASE_URL  — The API endpoint for the LLM (e.g. https://api.openai.com/v1)
   MODEL_NAME    — The model identifier to use for inference (e.g. gpt-4o)
   HF_TOKEN      — Your Hugging Face / API key
 
@@ -31,7 +31,7 @@ from openai import OpenAI
 # ---------------------------------------------------------------------------
 # MANDATORY Environment Variables (per hackathon rules)
 # 
-#   export API_BASE_URL="https://router.huggingface.co/v1"
+#   export API_BASE_URL="https://api.openai.com/v1"
 #   export MODEL_NAME="gpt-4o"
 #   export HF_TOKEN="hf_..."
 # ---------------------------------------------------------------------------
@@ -62,7 +62,7 @@ def _validate_env() -> None:
         for var in missing:
             print(f"     • {var}")
         print("\n  Please set them before running:")
-        print('     export API_BASE_URL="https://router.huggingface.co/v1"')
+        print('     export API_BASE_URL="https://api.openai.com/v1"')
         print('     export MODEL_NAME="gpt-4o"')
         print('     export HF_TOKEN="hf_your_token_here"')
         print()
