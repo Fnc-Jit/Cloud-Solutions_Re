@@ -246,6 +246,72 @@ All graders output deterministic scores between **0.0** and **1.0**:
 
 ---
 
+## 🛡️ Validation Suite (`pre_validation.py`)
+
+We include a comprehensive validation script that verifies the entire environment meets hackathon compliance standards in a single command. This was built to give evaluators confidence that the environment is correctly wired — no manual inspection needed.
+
+### Why we included it
+
+OpenEnv environments have a strict contract: typed models, REST endpoints, deterministic graders, a Docker container, and an inference script using the OpenAI Client. Rather than asking evaluators to check each piece manually, `pre_validation.py` automates **21 checks across 5 categories** and reports a clear pass/fail summary.
+
+### What it checks
+
+| # | Category | What's verified |
+|---|----------|----------------|
+| 1 | **Environment Variables** | `API_BASE_URL`, `MODEL_NAME`, `HF_TOKEN` are set (auto-loads from `.env`) |
+| 2 | **OpenEnv Spec** | `openenv.yaml` is valid, has `name`/`entrypoint`/`tasks`, defines 3+ tasks. Pydantic models (`Action`, `Observation`, `RewardInfo`) exist. Server exposes `/reset`, `/step`, `/state`. |
+| 3 | **Dockerfile** | Dockerfile exists, Docker builds successfully, exposes port 8000, runs uvicorn |
+| 4 | **Inference Script** | `inference.py` exists in root, imports OpenAI Client, references all 3 env vars, has a `main` entry point |
+| 5 | **Task Graders** | All 3 tasks (`easy`, `medium`, `hard`) run without error, each grader returns a score in `[0.0, 1.0]` |
+| Bonus | **Resource Constraints** | No heavy ML frameworks (torch, tensorflow, etc.) in requirements |
+
+### How to run
+
+```bash
+# From inside the project directory:
+python pre_validation.py                   # full check (includes Docker build)
+python pre_validation.py --skip-docker     # skip Docker build (faster)
+```
+
+### Sample output
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CloudFinOps-Env — Validation Suite
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▸ Check 1 — Environment Variables
+  ✅ PASS  API_BASE_URL is set
+  ✅ PASS  MODEL_NAME is set
+  ✅ PASS  HF_TOKEN is set
+
+▸ Check 2 — OpenEnv Spec Compliance
+  ✅ PASS  openenv.yaml parseable
+  ✅ PASS  openenv.yaml has 3+ tasks
+  ✅ PASS  Pydantic models (Action, Observation, Reward)
+  ✅ PASS  Server endpoints: /reset, /step, /state
+
+▸ Check 4 — Inference Script (inference.py)
+  ✅ PASS  inference.py exists in project root
+  ✅ PASS  Uses OpenAI Client
+  ✅ PASS  References API_BASE_URL, MODEL_NAME, HF_TOKEN
+
+▸ Check 5 — Task Graders (3 tasks, scores in 0.0–1.0)
+  ✅ PASS  Task 'easy'   → Score = 0.0000
+  ✅ PASS  Task 'medium' → Score = 0.0000
+  ✅ PASS  Task 'hard'   → Score = 0.2080
+  ✅ PASS  All 3 tasks produce valid grader scores
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  RESULTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Passed: 21/21
+  ✅ All 21 checks passed.
+```
+
+---
+
 ## 📁 Project Structure
 
 ```
@@ -257,6 +323,7 @@ cloudfinops-env/
 │   └── server.py             # FastAPI endpoints (/reset, /step, /state)
 ├── openenv.yaml              # OpenEnv metadata (3 tasks + required env vars)
 ├── inference.py              # Baseline LLM evaluator using OpenAI SDK
+├── pre_validation.py         # ← Automated 21-check validation suite
 ├── .env.example              # ← Edit this one file with your credentials
 ├── requirements.txt          # Python dependencies
 ├── Dockerfile                # HF Spaces deployment container
@@ -266,3 +333,4 @@ cloudfinops-env/
 ---
 
 Built with ❤️ for the Meta AI & HuggingFace OpenEnv Hackathon
+
