@@ -6,6 +6,56 @@ A Reinforcement Learning environment that simulates real-world **cloud infrastru
 
 ---
 
+## ⚡ Quick Start for Judges
+
+> **One file to configure. Everything reads from it.**
+
+### Step 1 — Edit `.env.example` (the single config file)
+
+Open `.env.example` in the project root and fill in your 3 values:
+
+```env
+API_BASE_URL=https://router.huggingface.co/v1
+MODEL_NAME=gpt-4o
+HF_TOKEN=hf_your_token_here
+```
+
+Then copy it to `.env`:
+
+```bash
+cp .env.example .env    # edit .env with your real values
+```
+
+`inference.py` automatically loads this `.env` file at startup — **no manual exporting needed**.
+
+### Step 2 — Install & Start the Environment Server
+
+```bash
+pip install -r requirements.txt
+uvicorn env.server:app --host 0.0.0.0 --port 8000
+```
+
+### Step 3 — Run the Evaluator
+
+```bash
+python inference.py
+```
+
+That's it. The script will:
+- Auto-load `API_BASE_URL`, `MODEL_NAME`, and `HF_TOKEN` from `.env`
+- Initialize an **OpenAI Client** with those values
+- Run all 3 tasks (easy, medium, hard)
+- Print per-task scores and an overall average
+
+### Docker (Alternative)
+
+```bash
+docker build -t cloudfinops-env .
+docker run --env-file .env -p 8000:8000 cloudfinops-env
+```
+
+---
+
 ## 🎯 Motivation & Why This Matters
 
 Cloud infrastructure management is one of the most critical real-world tasks in modern engineering. Platform teams spend thousands of hours annually making decisions about:
@@ -107,43 +157,6 @@ The reward function provides **continuous signal over the full trajectory**, not
 
 ---
 
-## 🚀 Setup & Usage
-
-### Prerequisites
-```bash
-pip install -r requirements.txt
-```
-
-### Run the Environment Server
-```bash
-uvicorn env.server:app --host 0.0.0.0 --port 8000
-```
-
-### Run the Baseline Evaluator
-```bash
-# Set your API credentials
-export OPENAI_API_KEY="your-key-here"
-export API_BASE_URL="https://api.openai.com/v1"  # or any OpenAI-compatible endpoint
-export MODEL_NAME="gpt-4"
-
-# Run evaluation
-python inference.py
-```
-
-### Docker Deployment
-```bash
-docker build -t cloudfinops-env .
-docker run -p 8000:8000 cloudfinops-env
-```
-
-### HuggingFace Spaces
-```bash
-# Push directly to your HF Space (tagged with openenv)
-openenv push --repo-id your-username/cloudfinops-env
-```
-
----
-
 ## 📡 API Endpoints
 
 | Method | Path | Body | Returns |
@@ -179,6 +192,19 @@ All graders output deterministic scores between **0.0** and **1.0**:
 
 ---
 
+## 🔐 Environment Variables Reference
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `API_BASE_URL` | ✅ Yes | — | OpenAI-compatible API endpoint |
+| `MODEL_NAME` | ✅ Yes | — | Model identifier for inference |
+| `HF_TOKEN` | ✅ Yes | — | Hugging Face / API key |
+| `ENV_BASE_URL` | ❌ No | `http://localhost:8000` | Environment server URL |
+
+All three mandatory variables are validated at startup. `inference.py` will exit with a clear error message if any are missing.
+
+---
+
 ## 📁 Project Structure
 
 ```
@@ -188,8 +214,9 @@ cloudfinops-env/
 │   ├── models.py             # Pydantic schemas (ServerState, Action, Observation, RewardInfo)
 │   ├── engine.py             # Physics simulator, task configs, grading logic
 │   └── server.py             # FastAPI endpoints (/reset, /step, /state)
-├── openenv.yaml              # OpenEnv metadata (3 tasks)
+├── openenv.yaml              # OpenEnv metadata (3 tasks + required env vars)
 ├── inference.py              # Baseline LLM evaluator using OpenAI SDK
+├── .env.example              # Template for required environment variables
 ├── requirements.txt          # Python dependencies
 ├── Dockerfile                # HF Spaces deployment container
 └── README.md                 # This file

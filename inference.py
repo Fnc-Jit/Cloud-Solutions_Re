@@ -1,12 +1,12 @@
 """Mandatory baseline evaluation script for the OpenEnv Hackathon.
 
 Runs an LLM agent against the CloudFinOps environment through /reset and /step.
-Uses the `openai` SDK and environment variables:
-  - API_BASE_URL  The API endpoint for the LLM.
-  - MODEL_NAME    The model identifier to use for inference.
-  - HF_TOKEN      Your Hugging Face / API key.
+Uses the `openai` SDK and the following MANDATORY environment variables:
 
-The inference script must be named `inference.py` and placed in the root directory.
+  API_BASE_URL  — The API endpoint for the LLM (e.g. https://router.huggingface.co/v1)
+  MODEL_NAME    — The model identifier to use for inference (e.g. gpt-4o)
+  HF_TOKEN      — Your Hugging Face / API key
+
 Participants must use OpenAI Client for all LLM calls using above variables.
 """
 
@@ -18,24 +18,67 @@ import sys
 import time
 from typing import Any, Dict, List
 
+# Auto-load .env file if present (judges can use .env.example as a template)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv is optional; env vars can be exported in shell instead
+
 import httpx
 from openai import OpenAI
 
 # ---------------------------------------------------------------------------
-# Configuration (from environment variables — mandatory per hackathon rules)
+# MANDATORY Environment Variables (per hackathon rules)
+# 
+#   export API_BASE_URL="https://router.huggingface.co/v1"
+#   export MODEL_NAME="gpt-4o"
+#   export HF_TOKEN="hf_..."
 # ---------------------------------------------------------------------------
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY", "")
-MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-3.3-70B-Instruct")
+API_BASE_URL: str = os.environ.get("API_BASE_URL", "")
+MODEL_NAME: str = os.environ.get("MODEL_NAME", "")
+HF_TOKEN: str = os.environ.get("HF_TOKEN", "")
 
 # CloudFinOps environment URL (local Docker or HF Space)
-ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:8000")
+ENV_BASE_URL: str = os.environ.get("ENV_BASE_URL", "http://localhost:8000")
 
-MAX_STEPS = 10
+# Evaluation parameters
+MAX_STEPS: int = 10
 TASKS: List[str] = ["easy", "medium", "hard"]
 
-# OpenAI client — mandatory per hackathon rules
-client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+
+def _validate_env() -> None:
+    """Ensure all mandatory environment variables are set before proceeding."""
+    missing: List[str] = []
+    if not API_BASE_URL:
+        missing.append("API_BASE_URL")
+    if not MODEL_NAME:
+        missing.append("MODEL_NAME")
+    if not HF_TOKEN:
+        missing.append("HF_TOKEN")
+
+    if missing:
+        print("\n  ❌ ERROR: Missing mandatory environment variables:")
+        for var in missing:
+            print(f"     • {var}")
+        print("\n  Please set them before running:")
+        print('     export API_BASE_URL="https://router.huggingface.co/v1"')
+        print('     export MODEL_NAME="gpt-4o"')
+        print('     export HF_TOKEN="hf_your_token_here"')
+        print()
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# OpenAI Client — mandatory per hackathon rules
+# All LLM calls go through this client using the three env vars above.
+# ---------------------------------------------------------------------------
+_validate_env()
+
+client = OpenAI(
+    base_url=API_BASE_URL,
+    api_key=HF_TOKEN,
+)
 
 # HTTP client for environment REST calls
 http = httpx.Client(timeout=60.0)
@@ -119,7 +162,7 @@ def run_task(task_id: str) -> float:
         print(f"\n--- Step {step_num} ---")
         print(f"  Budget: ${budget:.2f}  |  Traffic: {traffic}%")
 
-        # Ask LLM for action
+        # Ask LLM for action via OpenAI Client (mandatory)
         try:
             completion = client.chat.completions.create(
                 model=MODEL_NAME,
@@ -176,11 +219,9 @@ def main() -> None:
     print("=" * 60)
     print(f"  Model:     {MODEL_NAME}")
     print(f"  API:       {API_BASE_URL}")
+    print(f"  HF_TOKEN:  {'*' * 4}{HF_TOKEN[-4:] if len(HF_TOKEN) > 4 else '****'}")
     print(f"  Env:       {ENV_BASE_URL}")
     print(f"  Max Steps: {MAX_STEPS}")
-
-    if not API_KEY:
-        print("\n  ⚠️  WARNING: HF_TOKEN / API_KEY not set. LLM calls may fail.")
 
     scores: Dict[str, float] = {}
     for task_id in TASKS:

@@ -2,6 +2,19 @@ name: CloudFinOps-Env
 description: An RL environment combining cloud cost-optimization with SLA incident management and simulated text-chat.
 version: 1.0.0
 entrypoint: env.server:app
+
+# Mandatory environment variables 
+env:
+  - name: API_BASE_URL
+    description: The API endpoint for the LLM (OpenAI-compatible)
+    required: true
+  - name: MODEL_NAME
+    description: The model identifier to use for inference
+    required: true
+  - name: HF_TOKEN
+    description: Your Hugging Face / API key
+    required: true
+
 tasks:
   - id: "easy"
     name: "Zombie Cleanup"
