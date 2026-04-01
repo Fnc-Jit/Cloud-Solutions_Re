@@ -16,6 +16,9 @@ class ServerState(BaseModel):
     memory_util: float = Field(0.0, ge=0.0, description="Memory utilisation %")
     cost_per_hour: float = Field(0.0, ge=0.0, description="Hourly cost in USD")
     status: str = Field("running", description="running | terminated | pending_scale")
+    # Trailing metrics — last N steps of CPU/memory for trend detection
+    cpu_history: List[float] = Field(default_factory=list, description="CPU util for last 3 steps")
+    memory_history: List[float] = Field(default_factory=list, description="Memory util for last 3 steps")
 
 
 class Observation(BaseModel):
@@ -28,6 +31,8 @@ class Observation(BaseModel):
     budget_remaining: float = Field(100.0)
     time_step: int = Field(0)
     inbox: List[str] = Field(default_factory=list, description="Text messages from humans")
+    # GreenOps: cumulative carbon emissions for the episode
+    carbon_kwh: float = Field(0.0, description="Cumulative carbon emissions in kWh")
 
 
 class Action(BaseModel):
@@ -35,7 +40,7 @@ class Action(BaseModel):
 
     command: Literal["UPSCALE", "DOWNSCALE", "TERMINATE", "REDISTRIBUTE_LOAD", "IGNORE"] = "IGNORE"
     target_id: Optional[str] = Field(None, description="Server ID to act on")
-    reply: str = Field("", description="Text reply to the inbox")
+    reply: Optional[str] = Field("", description="Text reply to the inbox")
 
 
 class RewardInfo(BaseModel):

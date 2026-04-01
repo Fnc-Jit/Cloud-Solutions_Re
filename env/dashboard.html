@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CloudFinOps — Live Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ── Reset & Base ───────────────────────────────────────── */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg-deep: #0a0e1a;
+  --bg-card: rgba(15, 20, 40, 0.7);
+  --bg-card-hover: rgba(20, 28, 55, 0.85);
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --glass-shine: rgba(255, 255, 255, 0.03);
+  --text-primary: #e8ecf4;
+  --text-secondary: #8892a8;
+  --text-muted: #556078;
+  --accent-blue: #3b82f6;
+  --accent-cyan: #06b6d4;
+  --accent-green: #10b981;
+  --accent-yellow: #f59e0b;
+  --accent-orange: #f97316;
+  --accent-red: #ef4444;
+  --accent-purple: #8b5cf6;
+  --accent-pink: #ec4899;
+  --shadow-glow: 0 0 30px rgba(59, 130, 246, 0.08);
+  --radius: 16px;
+  --radius-sm: 10px;
+  --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+html { font-size: 14px; }
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Animated gradient background */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 10%, rgba(59, 130, 246, 0.08), transparent 50%),
+    radial-gradient(ellipse 60% 50% at 80% 90%, rgba(139, 92, 246, 0.06), transparent 50%),
+    radial-gradient(ellipse 50% 40% at 50% 50%, rgba(6, 182, 212, 0.04), transparent 50%);
+  z-index: 0;
+  animation: bgPulse 8s ease-in-out infinite alternate;
+}
+@keyframes bgPulse {
+  0% { opacity: 0.7; }
+  100% { opacity: 1; }
+}
+
+/* ── Layout ─────────────────────────────────────────────── */
+.app { position: relative; z-index: 1; padding: 24px 32px 48px; max-width: 1600px; margin: 0 auto; }
+
+/* ── Header ─────────────────────────────────────────────── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 28px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--glass-border);
+}
+.header-left { display: flex; align-items: center; gap: 16px; }
+.logo {
+  font-size: 2rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue), var(--accent-purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.5px;
+}
+.logo-icon { font-size: 2.2rem; }
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.badge-live {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--accent-green);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+.badge-live::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-green);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+@keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.8); } }
+.badge-task {
+  background: rgba(139, 92, 246, 0.15);
+  color: var(--accent-purple);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  font-size: 0.85rem;
+}
+.header-right { display: flex; align-items: center; gap: 12px; }
+
+/* ── Stat Ribbon ────────────────────────────────────────── */
+.ribbon {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 28px;
+}
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  backdrop-filter: blur(12px);
+  transition: var(--transition);
+  position: relative;
+  overflow: hidden;
+}
+.stat-card::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.stat-card:nth-child(1)::after { background: linear-gradient(90deg, var(--accent-green), var(--accent-cyan)); }
+.stat-card:nth-child(2)::after { background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple)); }
+.stat-card:nth-child(3)::after { background: linear-gradient(90deg, var(--accent-orange), var(--accent-yellow)); }
+.stat-card:nth-child(4)::after { background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue)); }
+.stat-card:nth-child(5)::after { background: linear-gradient(90deg, var(--accent-red), var(--accent-pink)); }
+.stat-card:nth-child(6)::after { background: linear-gradient(90deg, var(--accent-purple), var(--accent-pink)); }
+.stat-card:nth-child(7)::after { background: linear-gradient(90deg, var(--accent-green), #22c55e); }
+
+/* Sparkline */
+.sparkline { display: inline-flex; align-items: flex-end; gap: 2px; height: 16px; margin-left: 6px; vertical-align: middle; }
+.sparkline-bar { width: 4px; border-radius: 2px; background: var(--accent-cyan); opacity: 0.6; transition: height 0.3s ease; }
+.sparkline-bar:last-child { opacity: 1; }
+
+.stat-card:hover { background: var(--bg-card-hover); transform: translateY(-2px); box-shadow: var(--shadow-glow); }
+.stat-label { font-size: 0.75rem; font-weight: 500; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; }
+.stat-value { font-family: 'JetBrains Mono', monospace; font-size: 1.8rem; font-weight: 700; }
+.stat-sub { font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; }
+
+/* ── Carbon Charts ─────────────────────────────────────── */
+.carbon-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 0.72rem;
+}
+.carbon-bar-label {
+  font-family: 'JetBrains Mono', monospace;
+  min-width: 86px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.carbon-bar-track {
+  flex: 1;
+  height: 10px;
+  border-radius: 5px;
+  background: rgba(255,255,255,0.05);
+  overflow: hidden;
+  position: relative;
+}
+.carbon-bar-fill {
+  height: 100%;
+  border-radius: 5px;
+  transition: width 0.5s ease;
+}
+.carbon-bar-fill.dirty { background: linear-gradient(90deg, #f97316, #ef4444); }
+.carbon-bar-fill.clean { background: linear-gradient(90deg, #10b981, #22c55e); }
+.carbon-bar-fill.neutral { background: linear-gradient(90deg, #3b82f6, #06b6d4); }
+.carbon-bar-value {
+  font-family: 'JetBrains Mono', monospace;
+  min-width: 52px;
+  text-align: right;
+  font-weight: 600;
+}
+.carbon-bar-value.dirty { color: var(--accent-orange); }
+.carbon-bar-value.clean { color: var(--accent-green); }
+.carbon-bar-value.neutral { color: var(--accent-cyan); }
+.carbon-tag {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.carbon-tag.dirty { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); }
+.carbon-tag.clean { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); }
+.carbon-timeline {
+  width: 100%;
+  height: 80px;
+  border-radius: 8px;
+  background: rgba(10, 14, 28, 0.4);
+  border: 1px solid var(--glass-border);
+}
+.carbon-legend {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+.carbon-summary {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.carbon-summary-item {
+  flex: 1;
+  text-align: center;
+  padding: 10px 8px;
+  border-radius: 8px;
+  background: rgba(10, 14, 28, 0.4);
+  border: 1px solid var(--glass-border);
+}
+.carbon-summary-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+.carbon-summary-label {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 2px;
+}
+
+/* ── Main Grid ──────────────────────────────────────────── */
+.main-grid {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 24px;
+}
+
+/* ── Panel (reusable card) ──────────────────────────────── */
+.panel {
+  background: var(--bg-card);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  padding: 24px;
+  backdrop-filter: blur(12px);
+}
+.panel-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 20px;
+  color: var(--text-primary);
+}
+.panel-title .icon { font-size: 1.2rem; }
+
+/* ── Server Grid ────────────────────────────────────────── */
+.server-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+.server-card {
+  background: rgba(10, 14, 28, 0.5);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 16px 18px;
+  transition: var(--transition);
+  position: relative;
+}
+.server-card:hover { border-color: rgba(255,255,255,0.12); transform: translateY(-1px); }
+.server-card.terminated {
+  opacity: 0.35;
+  filter: grayscale(0.6);
+}
+.server-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.server-id {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--accent-cyan);
+}
+.server-type {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(139, 92, 246, 0.12);
+  color: var(--accent-purple);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+}
+.server-status {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.server-status.running { color: var(--accent-green); }
+.server-status.terminated { color: var(--accent-red); }
+.server-status.pending { color: var(--accent-yellow); }
+
+.metric-row { margin-bottom: 10px; }
+.metric-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 5px;
+}
+.metric-name { font-size: 0.72rem; font-weight: 500; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+.metric-val { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; font-weight: 600; }
+
+/* Progress bars */
+.bar-track {
+  width: 100%;
+  height: 6px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.06);
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1), background 0.4s ease;
+  min-width: 2px;
+}
+.bar-fill.cpu { background: linear-gradient(90deg, var(--accent-green), var(--accent-cyan)); }
+.bar-fill.cpu.warn { background: linear-gradient(90deg, var(--accent-yellow), var(--accent-orange)); }
+.bar-fill.cpu.danger { background: linear-gradient(90deg, var(--accent-orange), var(--accent-red)); }
+.bar-fill.cpu.critical { background: linear-gradient(90deg, var(--accent-red), #dc2626); animation: criticalPulse 0.8s ease-in-out infinite alternate; }
+@keyframes criticalPulse { 0% { opacity: 0.7; } 100% { opacity: 1; } }
+.bar-fill.mem { background: linear-gradient(90deg, var(--accent-purple), var(--accent-pink)); }
+
+.server-cost {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 8px;
+  display: flex;
+  justify-content: space-between;
+}
+
+/* ── Sidebar Panels ─────────────────────────────────────── */
+.sidebar { display: flex; flex-direction: column; gap: 20px; }
+
+/* Action Log */
+.action-log { max-height: 260px; overflow-y: auto; }
+.action-log::-webkit-scrollbar { width: 4px; }
+.action-log::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+.action-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(10, 14, 28, 0.4);
+  margin-bottom: 8px;
+  border-left: 3px solid var(--accent-blue);
+  transition: var(--transition);
+  animation: slideIn 0.3s ease-out;
+}
+@keyframes slideIn {
+  0% { opacity: 0; transform: translateX(-10px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+.action-item.positive { border-left-color: var(--accent-green); }
+.action-item.negative { border-left-color: var(--accent-red); }
+.action-item.neutral { border-left-color: var(--text-muted); }
+.action-step {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  min-width: 32px;
+}
+.action-detail { flex: 1; }
+.action-cmd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.action-target { color: var(--accent-cyan); }
+.action-reward {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  margin-top: 3px;
+}
+.action-reward.pos { color: var(--accent-green); }
+.action-reward.neg { color: var(--accent-red); }
+
+/* Inbox */
+.inbox-list { max-height: 200px; overflow-y: auto; }
+.inbox-list::-webkit-scrollbar { width: 4px; }
+.inbox-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+.inbox-msg {
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: rgba(10, 14, 28, 0.4);
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  border-left: 3px solid var(--accent-yellow);
+}
+
+/* Incidents */
+.incident-item {
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+  color: var(--accent-red);
+  font-weight: 500;
+}
+.no-incidents {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  padding: 12px;
+  text-align: center;
+}
+
+/* ── Final Score Overlay ────────────────────────────────── */
+.score-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(8px);
+  z-index: 100;
+  justify-content: center;
+  align-items: center;
+}
+.score-overlay.visible { display: flex; }
+.score-card {
+  background: var(--bg-card);
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  padding: 48px 64px;
+  text-align: center;
+  animation: scaleIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes scaleIn { 0% { opacity: 0; transform: scale(0.8); } 100% { opacity: 1; transform: scale(1); } }
+.score-label { font-size: 1rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 12px; }
+.score-number {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 4rem;
+  font-weight: 900;
+  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.score-dismiss { margin-top: 24px; padding: 10px 28px; border: 1px solid var(--glass-border); border-radius: 10px; background: transparent; color: var(--text-secondary); cursor: pointer; font-size: 0.85rem; transition: var(--transition); }
+.score-dismiss:hover { background: rgba(255,255,255,0.05); color: var(--text-primary); }
+
+/* ── Waiting State ──────────────────────────────────────── */
+.waiting-state {
+  text-align: center;
+  padding: 80px 20px;
+  color: var(--text-muted);
+}
+.waiting-state .spinner {
+  width: 48px;
+  height: 48px;
+  border: 3px solid rgba(255,255,255,0.08);
+  border-top-color: var(--accent-cyan);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 24px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.waiting-state h2 { font-size: 1.2rem; color: var(--text-secondary); margin-bottom: 8px; }
+.waiting-state p { font-size: 0.85rem; }
+
+/* ── Responsive ─────────────────────────────────────────── */
+@media (max-width: 1100px) {
+  .main-grid { grid-template-columns: 1fr; }
+  .sidebar { order: -1; }
+}
+@media (max-width: 600px) {
+  .app { padding: 16px; }
+  .ribbon { grid-template-columns: repeat(2, 1fr); }
+  .server-grid { grid-template-columns: 1fr; }
+  .header { flex-direction: column; align-items: flex-start; gap: 12px; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <span class="logo-icon">☁️</span>
+      <span class="logo">CloudFinOps</span>
+      <span class="badge badge-live" id="statusBadge">Polling</span>
+      <span class="badge badge-task" id="taskBadge">—</span>
+    </div>
+    <div class="header-right">
+      <span style="font-size:0.75rem;color:var(--text-muted);">Refresh: <span id="pollMs">500</span>ms</span>
+    </div>
+  </header>
+
+  <!-- Stat Ribbon -->
+  <section class="ribbon">
+    <div class="stat-card">
+      <div class="stat-label">💰 Budget Remaining</div>
+      <div class="stat-value" id="budgetVal">—</div>
+      <div class="stat-sub" id="budgetSub"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">📡 Traffic Load</div>
+      <div class="stat-value" id="trafficVal">—</div>
+      <div class="stat-sub" id="trafficSub"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">⏱️ Time Step</div>
+      <div class="stat-value" id="stepVal">—</div>
+      <div class="stat-sub" id="stepSub"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">🖥️ Running Servers</div>
+      <div class="stat-value" id="runningVal">—</div>
+      <div class="stat-sub" id="runningSub"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">🚨 SLA Breaches</div>
+      <div class="stat-value" id="incidentVal">0</div>
+      <div class="stat-sub" id="incidentSub"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">⚡ Spike Detected</div>
+      <div class="stat-value" id="spikeVal">—</div>
+      <div class="stat-sub" id="spikeSub"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">🌍 Carbon Emissions</div>
+      <div class="stat-value" id="carbonVal">0.00</div>
+      <div class="stat-sub" id="carbonSub">kWh cumulative</div>
+    </div>
+  </section>
+
+  <!-- Main Grid -->
+  <div class="main-grid">
+
+    <!-- Server Fleet -->
+    <div class="panel">
+      <div class="panel-title"><span class="icon">🏢</span> Server Fleet</div>
+      <div class="server-grid" id="serverGrid">
+        <div class="waiting-state">
+          <div class="spinner"></div>
+          <h2>Waiting for environment…</h2>
+          <p>Run <code>POST /reset</code> or start <code>inference.py</code></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+
+      <!-- Action History -->
+      <div class="panel">
+        <div class="panel-title"><span class="icon">🤖</span> Agent Actions</div>
+        <div class="action-log" id="actionLog">
+          <div class="no-incidents">No actions yet — waiting for agent…</div>
+        </div>
+      </div>
+
+      <!-- Inbox -->
+      <div class="panel">
+        <div class="panel-title"><span class="icon">📬</span> Inbox Messages</div>
+        <div class="inbox-list" id="inboxList">
+          <div class="no-incidents">No messages yet</div>
+        </div>
+      </div>
+
+      <!-- Incidents -->
+      <div class="panel">
+        <div class="panel-title"><span class="icon">🔥</span> SLA Incidents</div>
+        <div id="incidentList">
+          <div class="no-incidents">✅ No breaches — all clear</div>
+        </div>
+      </div>
+
+      <!-- Carbon Breakdown -->
+      <div class="panel">
+        <div class="panel-title"><span class="icon">🌍</span> Carbon Breakdown</div>
+        <div class="carbon-summary" id="carbonSummary">
+          <div class="carbon-summary-item">
+            <div class="carbon-summary-num" id="dirtyCount" style="color:var(--accent-orange)">0</div>
+            <div class="carbon-summary-label">🔥 Dirty x86</div>
+          </div>
+          <div class="carbon-summary-item">
+            <div class="carbon-summary-num" id="cleanCount" style="color:var(--accent-green)">0</div>
+            <div class="carbon-summary-label">🌿 Clean ARM</div>
+          </div>
+          <div class="carbon-summary-item">
+            <div class="carbon-summary-num" id="carbonRate" style="color:var(--accent-cyan)">0.00</div>
+            <div class="carbon-summary-label">⚡ kWh/step</div>
+          </div>
+        </div>
+        <div id="carbonBars"></div>
+        <canvas class="carbon-timeline" id="carbonTimeline"></canvas>
+        <div class="carbon-legend">
+          <span>Step 0</span>
+          <span>Cumulative kWh over time →</span>
+          <span id="carbonTimelineMax">Step 10</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Score Overlay -->
+<div class="score-overlay" id="scoreOverlay">
+  <div class="score-card">
+    <div class="score-label">Task Complete — Final Score</div>
+    <div class="score-number" id="finalScore">0.0000</div>
+    <button class="score-dismiss" onclick="document.getElementById('scoreOverlay').classList.remove('visible')">Dismiss</button>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════
+   CloudFinOps Live Dashboard — polls /state & /history
+   ═══════════════════════════════════════════════════════════ */
+
+const POLL_INTERVAL = 500; // ms
+let prevStep = -1;
+let prevActionCount = 0;
+
+// ── Helpers ──────────────────────────────────────────────
+
+function cpuClass(val) {
+  if (val >= 90) return 'critical';
+  if (val >= 75) return 'danger';
+  if (val >= 50) return 'warn';
+  return '';
+}
+
+function cpuColor(val) {
+  if (val >= 90) return 'var(--accent-red)';
+  if (val >= 75) return 'var(--accent-orange)';
+  if (val >= 50) return 'var(--accent-yellow)';
+  return 'var(--accent-green)';
+}
+
+function rewardClass(r) {
+  if (r > 0) return 'positive';
+  if (r < 0) return 'negative';
+  return 'neutral';
+}
+
+// ── Carbon Helpers ───────────────────────────────────────
+
+// Mirror engine's CARBON_INTENSITY
+const CARBON_INTENSITY = {
+  't3.micro': 0.005, 't3.medium': 0.012, 't3.large': 0.022,
+  'c5.large': 0.035, 'c5.xlarge': 0.065,
+  'r6g.medium': 0.008, 'r6g.large': 0.015, 'r6g.xlarge': 0.028,
+  'm5.large': 0.040, 'm5.xlarge': 0.075,
+};
+
+function carbonRatePerStep(servers) {
+  if (!servers) return 0;
+  return servers
+    .filter(s => s.status === 'running')
+    .reduce((sum, s) => sum + (CARBON_INTENSITY[s.type] || 0.01), 0);
+}
+
+function carbonCategory(type) {
+  if (type.startsWith('r6g')) return 'clean';
+  if (type.startsWith('c5') || type.startsWith('m5')) return 'dirty';
+  return 'neutral';
+}
+
+// Carbon timeline data (accumulates across polls)
+let carbonTimelineData = [];
+let lastTimelineStep = -1;
+
+function renderCarbonBreakdown(servers) {
+  if (!servers || servers.length === 0) return;
+  const running = servers.filter(s => s.status === 'running');
+
+  // Summary counts
+  const dirty = running.filter(s => carbonCategory(s.type) === 'dirty').length;
+  const clean = running.filter(s => carbonCategory(s.type) === 'clean').length;
+  const rate = carbonRatePerStep(servers);
+  document.getElementById('dirtyCount').textContent = dirty;
+  document.getElementById('cleanCount').textContent = clean;
+  document.getElementById('carbonRate').textContent = rate.toFixed(3);
+
+  // Per-server carbon bars
+  const el = document.getElementById('carbonBars');
+  const maxC = Math.max(...Object.values(CARBON_INTENSITY), 0.01);
+
+  // Sort: dirty first (highest carbon), then clean
+  const sorted = [...running].sort((a, b) => {
+    return (CARBON_INTENSITY[b.type] || 0) - (CARBON_INTENSITY[a.type] || 0);
+  });
+
+  el.innerHTML = sorted.map(s => {
+    const c = CARBON_INTENSITY[s.type] || 0.01;
+    const pct = (c / maxC) * 100;
+    const cat = carbonCategory(s.type);
+    return `
+      <div class="carbon-bar-row">
+        <span class="carbon-bar-label">${s.id}</span>
+        <div class="carbon-bar-track">
+          <div class="carbon-bar-fill ${cat}" style="width:${pct}%"></div>
+        </div>
+        <span class="carbon-bar-value ${cat}">${(c * 1000).toFixed(0)}w</span>
+        <span class="carbon-tag ${cat}">${cat === 'dirty' ? 'x86' : cat === 'clean' ? 'ARM' : 'web'}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+function drawCarbonTimeline(obs) {
+  const step = obs.time_step || 0;
+  const carbon = obs.carbon_kwh || 0;
+
+  // Only add a new point when the step changes
+  if (step !== lastTimelineStep) {
+    if (step === 0) carbonTimelineData = [];
+    carbonTimelineData.push({ step, carbon });
+    lastTimelineStep = step;
+  }
+
+  const canvas = document.getElementById('carbonTimeline');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+
+  // Handle high-DPI displays
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width;
+  const H = rect.height;
+
+  ctx.clearRect(0, 0, W, H);
+
+  if (carbonTimelineData.length < 2) {
+    ctx.fillStyle = 'rgba(136, 146, 168, 0.5)';
+    ctx.font = '11px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Waiting for data...', W / 2, H / 2);
+    return;
+  }
+
+  const maxStep = 10;
+  const maxCarbon = Math.max(...carbonTimelineData.map(d => d.carbon), 0.01) * 1.15;
+  const pad = { top: 8, right: 8, bottom: 6, left: 8 };
+  const cW = W - pad.left - pad.right;
+  const cH = H - pad.top - pad.bottom;
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i <= 3; i++) {
+    const y = pad.top + (cH * i) / 4;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(W - pad.right, y);
+    ctx.stroke();
+  }
+
+  // Build path
+  const points = carbonTimelineData.map(d => ({
+    x: pad.left + (d.step / maxStep) * cW,
+    y: pad.top + cH - (d.carbon / maxCarbon) * cH,
+  }));
+
+  // Gradient fill under curve
+  const grad = ctx.createLinearGradient(0, pad.top, 0, H - pad.bottom);
+  grad.addColorStop(0, 'rgba(16, 185, 129, 0.3)');
+  grad.addColorStop(1, 'rgba(16, 185, 129, 0.02)');
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, H - pad.bottom);
+  points.forEach(p => ctx.lineTo(p.x, p.y));
+  ctx.lineTo(points[points.length - 1].x, H - pad.bottom);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  points.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+  ctx.strokeStyle = '#10b981';
+  ctx.lineWidth = 2.5;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // Dots
+  points.forEach((p, i) => {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, i === points.length - 1 ? 4 : 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = i === points.length - 1 ? '#22c55e' : '#10b981';
+    ctx.fill();
+    if (i === points.length - 1) {
+      ctx.strokeStyle = 'rgba(34, 197, 94, 0.4)';
+      ctx.lineWidth = 6;
+      ctx.stroke();
+    }
+  });
+
+  // Value label on last point
+  const last = points[points.length - 1];
+  const lastD = carbonTimelineData[carbonTimelineData.length - 1];
+  ctx.fillStyle = '#e8ecf4';
+  ctx.font = 'bold 10px JetBrains Mono, monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText(lastD.carbon.toFixed(3) + ' kWh', last.x - 2, last.y - 8);
+
+  document.getElementById('carbonTimelineMax').textContent = `Step ${step}`;
+}
+
+// ── Render Functions ─────────────────────────────────────
+
+function renderServers(servers) {
+  const grid = document.getElementById('serverGrid');
+  if (!servers || servers.length === 0) {
+    grid.innerHTML = '<div class="waiting-state"><div class="spinner"></div><h2>No servers</h2><p>Environment not initialized</p></div>';
+    return;
+  }
+
+  // Sort: running first, then by id
+  const sorted = [...servers].sort((a, b) => {
+    if (a.status === 'running' && b.status !== 'running') return -1;
+    if (a.status !== 'running' && b.status === 'running') return 1;
+    return a.id.localeCompare(b.id);
+  });
+
+  grid.innerHTML = sorted.map(s => {
+    const isRunning = s.status === 'running';
+    const cpu = (s.cpu_util || 0).toFixed(1);
+    const mem = (s.memory_util || 0).toFixed(1);
+    const cost = (s.cost_per_hour || 0).toFixed(4);
+    // Build sparkline from cpu_history
+    const hist = s.cpu_history || [];
+    const maxH = Math.max(...hist, 1);
+    const spark = hist.map(v => `<span class="sparkline-bar" style="height:${Math.max((v/maxH)*16,2)}px;background:${cpuColor(v)}"></span>`).join('');
+    return `
+      <div class="server-card ${isRunning ? '' : 'terminated'}">
+        <div class="server-header">
+          <span class="server-id">${s.id}</span>
+          <span class="server-type">${s.type}</span>
+        </div>
+        <span class="server-status ${s.status}">${s.status === 'running' ? '● Running' : '○ Terminated'}</span>
+        <div class="metric-row" style="margin-top:10px">
+          <div class="metric-label-row">
+            <span class="metric-name">CPU <span class="sparkline">${spark}</span></span>
+            <span class="metric-val" style="color:${cpuColor(s.cpu_util)}">${cpu}%</span>
+          </div>
+          <div class="bar-track"><div class="bar-fill cpu ${cpuClass(s.cpu_util)}" style="width:${Math.min(cpu, 100)}%"></div></div>
+        </div>
+        <div class="metric-row">
+          <div class="metric-label-row">
+            <span class="metric-name">Memory</span>
+            <span class="metric-val">${mem}%</span>
+          </div>
+          <div class="bar-track"><div class="bar-fill mem" style="width:${Math.min(mem, 100)}%"></div></div>
+        </div>
+        <div class="server-cost">
+          <span>$${cost}/hr</span>
+          <span>${isRunning ? '🟢' : '🔴'}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderInbox(inbox) {
+  const el = document.getElementById('inboxList');
+  if (!inbox || inbox.length === 0) {
+    el.innerHTML = '<div class="no-incidents">No messages</div>';
+    return;
+  }
+  el.innerHTML = inbox.map(msg => `<div class="inbox-msg">${msg}</div>`).join('');
+}
+
+function renderIncidents(incidents) {
+  const el = document.getElementById('incidentList');
+  if (!incidents || incidents.length === 0) {
+    el.innerHTML = '<div class="no-incidents">✅ No breaches — all clear</div>';
+    return;
+  }
+  el.innerHTML = incidents.map(inc => {
+    const desc = typeof inc === 'string' ? inc : `${inc.server || inc.id || 'Server'} breached SLA — CPU: ${(inc.cpu || inc.cpu_util || 0).toFixed(1)}%`;
+    return `<div class="incident-item">🚨 ${desc}</div>`;
+  }).join('');
+}
+
+function renderActions(history) {
+  const el = document.getElementById('actionLog');
+  if (!history || history.length === 0) {
+    el.innerHTML = '<div class="no-incidents">No actions yet — waiting for agent…</div>';
+    return;
+  }
+
+  // Only re-render if new actions appeared
+  if (history.length === prevActionCount) return;
+  prevActionCount = history.length;
+
+  // Show latest first, max 20
+  const items = history.slice(-20).reverse();
+  el.innerHTML = items.map(h => {
+    const rc = rewardClass(h.reward);
+    const rSign = h.reward > 0 ? '+' : '';
+    return `
+      <div class="action-item ${rc}">
+        <span class="action-step">#${h.step}</span>
+        <div class="action-detail">
+          <div class="action-cmd">${h.command} → <span class="action-target">${h.target_id || '—'}</span></div>
+          <div class="action-reward ${h.reward >= 0 ? 'pos' : 'neg'}">${rSign}${h.reward.toFixed(1)}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function updateRibbon(obs) {
+  const budget = obs.budget_remaining || 0;
+  const traffic = obs.traffic_load || 0;
+  const step = obs.time_step || 0;
+  const running = (obs.servers || []).filter(s => s.status === 'running').length;
+  const total = (obs.servers || []).length;
+  const incidents = (obs.incidents || []).length;
+  const spike = obs.spike_detected;
+
+  document.getElementById('budgetVal').textContent = '$' + budget.toFixed(2);
+  document.getElementById('budgetSub').textContent = budget < 1 ? '⚠️ Low budget!' : '';
+  document.getElementById('budgetVal').style.color = budget < 1 ? 'var(--accent-red)' : '';
+
+  document.getElementById('trafficVal').textContent = traffic.toFixed(0) + '%';
+  document.getElementById('trafficSub').textContent = traffic > 80 ? '🔥 High traffic' : '';
+  document.getElementById('trafficVal').style.color = traffic > 80 ? 'var(--accent-orange)' : '';
+
+  document.getElementById('stepVal').textContent = step;
+  document.getElementById('stepSub').textContent = `of ${10}`;
+
+  document.getElementById('runningVal').textContent = running;
+  document.getElementById('runningSub').textContent = `of ${total} total`;
+
+  document.getElementById('incidentVal').textContent = incidents;
+  document.getElementById('incidentVal').style.color = incidents > 0 ? 'var(--accent-red)' : 'var(--accent-green)';
+  document.getElementById('incidentSub').textContent = incidents > 0 ? '❌ Breaches detected' : '✅ Clean';
+
+  document.getElementById('spikeVal').textContent = spike ? 'YES' : 'No';
+  document.getElementById('spikeVal').style.color = spike ? 'var(--accent-red)' : 'var(--accent-green)';
+
+  const carbon = obs.carbon_kwh || 0;
+  document.getElementById('carbonVal').textContent = carbon.toFixed(2);
+  const rate = carbonRatePerStep(obs.servers);
+  document.getElementById('carbonSub').textContent = `${rate.toFixed(3)} kWh/step`;
+  document.getElementById('carbonVal').style.color = carbon > 0.5 ? 'var(--accent-orange)' : 'var(--accent-green)';
+}
+
+// ── Polling Loop ─────────────────────────────────────────
+
+async function poll() {
+  try {
+    // Fetch current state
+    const stateResp = await fetch('/state');
+    if (!stateResp.ok) throw new Error('State endpoint returned ' + stateResp.status);
+    const obs = await stateResp.json();
+
+    // Update status badge
+    document.getElementById('statusBadge').textContent = 'Live';
+
+    // Detect task from server IDs
+    const ids = (obs.servers || []).map(s => s.id);
+    let task = '—';
+    if (ids.some(id => id.startsWith('arm'))) task = '🌍 Green';
+    else if (ids.some(id => id.startsWith('idle')) && ids.length === 10) task = '🟢 Easy';
+    else if (ids.length >= 11) task = '🟡 Medium';
+    else if (ids.some(id => id.startsWith('db'))) task = '🔴 Hard';
+    document.getElementById('taskBadge').textContent = task;
+
+    // Render everything
+    updateRibbon(obs);
+    renderServers(obs.servers);
+    renderInbox(obs.inbox);
+    renderIncidents(obs.incidents);
+    renderCarbonBreakdown(obs.servers);
+    drawCarbonTimeline(obs);
+
+    // Fetch action history
+    try {
+      const histResp = await fetch('/history');
+      if (histResp.ok) {
+        const history = await histResp.json();
+        renderActions(history);
+      }
+    } catch (e) { /* history endpoint optional */ }
+
+    prevStep = obs.time_step;
+  } catch (err) {
+    document.getElementById('statusBadge').textContent = 'Offline';
+  }
+  setTimeout(poll, POLL_INTERVAL);
+}
+
+// Start polling on load
+poll();
+</script>
+</body>
+</html>

@@ -22,3 +22,5 @@ tasks:
     name: "The CTO Budget Squeeze"
   - id: "hard"
     name: "Black Friday Chaos"
+  - id: "green"
+    name: "The Green Initiative"

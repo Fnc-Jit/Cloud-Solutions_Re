@@ -1,0 +1,45 @@
+name: CloudFinOps Validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest
+
+      - name: Run unit tests
+        run: pytest tests/ -v --tb=short
+
+      - name: Syntax check
+        run: python -c "import ast; [ast.parse(open(f).read()) for f in ['env/engine.py','env/server.py','env/models.py','inference.py']]"
+
+      - name: Verify OpenEnv spec
+        run: python -c "import yaml; d=yaml.safe_load(open('openenv.yaml')); assert len(d['tasks'])>=3"
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t cloudfinops-env .
+
+      - name: Verify container starts
+        run: |
+          docker run -d --name test-env -p 8000:8000 cloudfinops-env
+          sleep 5
+          curl -f http://localhost:8000/ || (docker logs test-env && exit 1)
+          docker stop test-env

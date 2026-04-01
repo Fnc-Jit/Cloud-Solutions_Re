@@ -1,7 +1,8 @@
 """CloudFinOps Physics Simulator & Grading Engine.
 
 Simulates a realistic cloud cost-optimization scenario using AWS-style
-instance types, real-world pricing, stochastic metric noise, and
+instance types, real-world pricing, stochastic metric noise, carbon
+emissions tracking (GreenOps), trailing metrics history, and
 multi-objective grading.
 """
 
@@ -42,7 +43,26 @@ UPSCALE_PATH: Dict[str, str] = {
     "m5.large":   "m5.xlarge",
 }
 
-MAX_STEPS = 15
+# GreenOps: Carbon intensity per instance type (kWh per step)
+# ARM-based Graviton (r6g) processors are highly efficient,
+# while Intel x86 (c5, m5) are heavier emitters.
+CARBON_INTENSITY: Dict[str, float] = {
+    "t3.micro":   0.005,   # tiny, minimal emissions
+    "t3.medium":  0.012,   # small web tier
+    "t3.large":   0.022,   # medium web tier
+    "c5.large":   0.035,   # x86 compute — high emissions
+    "c5.xlarge":  0.065,   # x86 compute XL — very high
+    "r6g.medium": 0.008,   # ARM Graviton — efficient
+    "r6g.large":  0.015,   # ARM Graviton — efficient
+    "r6g.xlarge": 0.028,   # ARM Graviton — still moderate
+    "m5.large":   0.040,   # x86 batch — high emissions
+    "m5.xlarge":  0.075,   # x86 batch XL — heaviest
+}
+
+# Trailing metrics history depth
+HISTORY_DEPTH = 3
+
+MAX_STEPS = 10
 SLA_CPU_LIMIT = 100.0  # CPU >= this => SLA breach
 
 
@@ -126,14 +146,38 @@ def _medium_servers() -> List[ServerState]:
 def _hard_servers() -> List[ServerState]:
     """8 servers: DB (high load), web (medium), batch (low)."""
     return [
-        ServerState(id="db-0",    type="r6g.large",  cpu_util=85.0, memory_util=70.0, cost_per_hour=INSTANCE_CATALOG["r6g.large"]["cost"],  status="running"),
-        ServerState(id="db-1",    type="r6g.large",  cpu_util=78.0, memory_util=65.0, cost_per_hour=INSTANCE_CATALOG["r6g.large"]["cost"],  status="running"),
+        ServerState(id="db-0",    type="r6g.large",  cpu_util=70.0, memory_util=60.0, cost_per_hour=INSTANCE_CATALOG["r6g.large"]["cost"],  status="running"),
+        ServerState(id="db-1",    type="r6g.large",  cpu_util=63.0, memory_util=55.0, cost_per_hour=INSTANCE_CATALOG["r6g.large"]["cost"],  status="running"),
         ServerState(id="web-0",   type="t3.medium",  cpu_util=55.0, memory_util=40.0, cost_per_hour=INSTANCE_CATALOG["t3.medium"]["cost"],  status="running"),
         ServerState(id="web-1",   type="t3.medium",  cpu_util=50.0, memory_util=35.0, cost_per_hour=INSTANCE_CATALOG["t3.medium"]["cost"],  status="running"),
         ServerState(id="web-2",   type="c5.large",   cpu_util=60.0, memory_util=45.0, cost_per_hour=INSTANCE_CATALOG["c5.large"]["cost"],   status="running"),
         ServerState(id="batch-0", type="m5.large",   cpu_util=20.0, memory_util=15.0, cost_per_hour=INSTANCE_CATALOG["m5.large"]["cost"],   status="running"),
         ServerState(id="batch-1", type="m5.large",   cpu_util=15.0, memory_util=10.0, cost_per_hour=INSTANCE_CATALOG["m5.large"]["cost"],   status="running"),
         ServerState(id="batch-2", type="m5.large",   cpu_util=10.0, memory_util=8.0,  cost_per_hour=INSTANCE_CATALOG["m5.large"]["cost"],   status="running"),
+    ]
+
+
+def _green_servers() -> List[ServerState]:
+    """10 servers: mix of dirty x86 (c5, m5) and clean ARM (r6g) instances.
+
+    The fleet is intentionally heavy on high-emission x86 instances, forcing
+    the agent to migrate workloads to efficient ARM processors.
+    """
+    return [
+        # Dirty x86 compute instances — high carbon
+        ServerState(id="compute-0", type="c5.large",   cpu_util=45.0, memory_util=30.0, cost_per_hour=INSTANCE_CATALOG["c5.large"]["cost"],   status="running"),
+        ServerState(id="compute-1", type="c5.large",   cpu_util=50.0, memory_util=35.0, cost_per_hour=INSTANCE_CATALOG["c5.large"]["cost"],   status="running"),
+        ServerState(id="compute-2", type="c5.xlarge",  cpu_util=40.0, memory_util=25.0, cost_per_hour=INSTANCE_CATALOG["c5.xlarge"]["cost"],  status="running"),
+        # Dirty x86 batch instances — heaviest carbon
+        ServerState(id="batch-0",   type="m5.large",   cpu_util=35.0, memory_util=20.0, cost_per_hour=INSTANCE_CATALOG["m5.large"]["cost"],   status="running"),
+        ServerState(id="batch-1",   type="m5.large",   cpu_util=25.0, memory_util=15.0, cost_per_hour=INSTANCE_CATALOG["m5.large"]["cost"],   status="running"),
+        ServerState(id="batch-2",   type="m5.xlarge",  cpu_util=30.0, memory_util=18.0, cost_per_hour=INSTANCE_CATALOG["m5.xlarge"]["cost"],  status="running"),
+        # Clean ARM Graviton instances — low carbon, under-utilised
+        ServerState(id="arm-0",     type="r6g.large",  cpu_util=15.0, memory_util=10.0, cost_per_hour=INSTANCE_CATALOG["r6g.large"]["cost"],  status="running"),
+        ServerState(id="arm-1",     type="r6g.large",  cpu_util=12.0, memory_util=8.0,  cost_per_hour=INSTANCE_CATALOG["r6g.large"]["cost"],  status="running"),
+        ServerState(id="arm-2",     type="r6g.medium", cpu_util=10.0, memory_util=5.0,  cost_per_hour=INSTANCE_CATALOG["r6g.medium"]["cost"], status="running"),
+        # One idle zombie (easy win)
+        ServerState(id="idle-0",    type="t3.micro",   cpu_util=0.0,  memory_util=0.0,  cost_per_hour=INSTANCE_CATALOG["t3.micro"]["cost"],   status="running"),
     ]
 
 
@@ -167,6 +211,16 @@ TASK_CONFIGS: Dict[str, Dict[str, Any]] = {
             "SRE On-Call: DB-0 is approaching capacity. Consider upscaling before it breaches SLA.",
         ],
     },
+    "green": {
+        "servers_fn": _green_servers,
+        "budget": 8.0,
+        "traffic_load": 40.0,
+        "spike": False,
+        "inbox": [
+            "CTO: We've committed to a 40% carbon reduction by EOQ. Migrate workloads from x86 to ARM Graviton where possible.",
+            "Sustainability Lead: Our c5 and m5 instances produce 3× the emissions of r6g. Please prioritise migration.",
+        ],
+    },
 }
 
 
@@ -184,6 +238,8 @@ class CloudFinOpsEngine:
     - Upscale cap: each server can only be upgraded through a fixed tier path
     - Load redistribution after terminations
     - Continuous reward shaping over full trajectory
+    - GreenOps: carbon emissions tracking per instance type
+    - Trailing metrics: last N steps of CPU/memory for trend detection
     """
 
     def __init__(self) -> None:
@@ -204,6 +260,12 @@ class CloudFinOpsEngine:
         self.upscale_counts: Dict[str, int] = {}  # track how many times each server was upscaled
         self.pending_scales: Dict[str, str] = {}   # id -> queued instance type
         self._reward_accum: float = 0.0
+        # GreenOps
+        self.carbon_kwh: float = 0.0
+        self.initial_carbon_rate: float = 0.0  # baseline carbon per step at reset
+        # Trailing metrics history
+        self._cpu_history: Dict[str, List[float]] = {}
+        self._mem_history: Dict[str, List[float]] = {}
 
     # ---- public API --------------------------------------------------------
 
@@ -229,6 +291,15 @@ class CloudFinOpsEngine:
         self.upscale_counts = {}
         self.pending_scales = {}
         self._reward_accum = 0.0
+        # GreenOps
+        self.carbon_kwh = 0.0
+        self.initial_carbon_rate = sum(
+            CARBON_INTENSITY.get(s.type, 0.01)
+            for s in self.servers if s.status == "running"
+        )
+        # Trailing metrics: seed with initial values
+        self._cpu_history = {s.id: [s.cpu_util] for s in self.servers}
+        self._mem_history = {s.id: [s.memory_util] for s in self.servers}
         return self._obs()
 
     def step(self, action: Action) -> Tuple[Observation, float, bool, Dict[str, Any]]:
@@ -258,7 +329,17 @@ class CloudFinOpsEngine:
         self.budget_remaining -= step_cost
         self.total_cost_spent += step_cost
 
-        # 7. Check SLA breaches
+        # 7. GreenOps: accumulate carbon emissions
+        step_carbon = sum(
+            CARBON_INTENSITY.get(s.type, 0.01)
+            for s in self.servers if s.status == "running"
+        )
+        self.carbon_kwh += step_carbon
+
+        # 8. Update trailing metrics history
+        self._update_history()
+
+        # 9. Check SLA breaches
         for s in self.servers:
             if s.status == "running" and s.cpu_util >= SLA_CPU_LIMIT:
                 self.sla_breached = True
@@ -271,15 +352,15 @@ class CloudFinOpsEngine:
                 })
                 reward -= 100.0
 
-        # 8. Per-step cost pressure (continuous signal over trajectory)
+        # 10. Per-step cost pressure (continuous signal over trajectory)
         if step_cost > 0.50:
             reward -= 1.0  # penalise high ongoing costs each step
 
-        # 9. Budget overrun penalty
+        # 11. Budget overrun penalty
         if self.budget_remaining < 0:
             reward -= 20.0
 
-        # 10. Check termination
+        # 12. Check termination
         if self.time_step >= MAX_STEPS or self.sla_breached or self.budget_remaining <= 0:
             self.done = True
 
@@ -301,8 +382,12 @@ class CloudFinOpsEngine:
             return self._grade_easy()
         elif self.task_id == "medium":
             return self._grade_medium()
-        else:
+        elif self.task_id == "hard":
             return self._grade_hard()
+        elif self.task_id == "green":
+            return self._grade_green()
+        else:
+            return 0.0
 
     # ---- graders -----------------------------------------------------------
 
@@ -353,17 +438,60 @@ class CloudFinOpsEngine:
         inbox_bonus = 0.1 if not self.inbox else 0.0  # inbox cleared = agent replied
         return round(_clamp(base + inbox_bonus, 0.0, 1.0), 4)
 
+    def _grade_green(self) -> float:
+        """Goal: reduce carbon emissions by >= 40% while maintaining SLA.
+
+        Scoring:
+        - carbon_reduction: proportional to emission reduction vs baseline
+        - uptime_score: 1.0 if no SLA breach, 0.0 if breached
+        - Formula: (carbon_score × 0.5) + (uptime × 0.3) + (cost_efficiency × 0.1) + (inbox × 0.1)
+        """
+        # Carbon reduction score
+        if self.initial_carbon_rate > 0:
+            # Calculate current per-step carbon rate
+            current_rate = sum(
+                CARBON_INTENSITY.get(s.type, 0.01)
+                for s in self.servers if s.status == "running"
+            )
+            reduction_pct = 1.0 - (current_rate / self.initial_carbon_rate)
+            target = 0.40  # 40% target
+            carbon_score = min(reduction_pct / target, 1.0) if target > 0 else 0.0
+        else:
+            carbon_score = 0.0
+
+        # Uptime
+        uptime_score = 0.0 if self.sla_breached else 1.0
+
+        # Cost efficiency
+        cost_saved_pct = 1.0 - (self.total_cost_spent / self.initial_budget) if self.initial_budget > 0 else 0.0
+        cost_efficiency = _clamp(cost_saved_pct, 0.0, 1.0)
+
+        # Inbox bonus
+        inbox_bonus = 0.1 if not self.inbox else 0.0
+
+        base = carbon_score * 0.5 + uptime_score * 0.3 + cost_efficiency * 0.1
+        return round(_clamp(base + inbox_bonus, 0.0, 1.0), 4)
+
     # ---- internal helpers --------------------------------------------------
 
     def _obs(self) -> Observation:
+        # Attach trailing history to each server copy
+        server_copies = []
+        for s in self.servers:
+            sc = s.model_copy()
+            sc.cpu_history = list(self._cpu_history.get(s.id, []))[-HISTORY_DEPTH:]
+            sc.memory_history = list(self._mem_history.get(s.id, []))[-HISTORY_DEPTH:]
+            server_copies.append(sc)
+
         return Observation(
-            servers=[s.model_copy() for s in self.servers],
+            servers=server_copies,
             traffic_load=round(self.traffic_load, 2),
             spike_detected=self.spike_detected,
             incidents=list(self.incidents),
             budget_remaining=round(self.budget_remaining, 4),
             time_step=self.time_step,
             inbox=list(self.inbox),
+            carbon_kwh=round(self.carbon_kwh, 4),
         )
 
     def _find_server(self, server_id: Optional[str]) -> Optional[ServerState]:
@@ -492,3 +620,17 @@ class CloudFinOpsEngine:
             per_server = orphan_cpu / len(running)
             for s in running:
                 s.cpu_util = round(_clamp(s.cpu_util + per_server), 1)
+
+    def _update_history(self) -> None:
+        """Record current CPU/memory into trailing history buffers."""
+        for s in self.servers:
+            if s.id not in self._cpu_history:
+                self._cpu_history[s.id] = []
+                self._mem_history[s.id] = []
+            self._cpu_history[s.id].append(s.cpu_util)
+            self._mem_history[s.id].append(s.memory_util)
+            # Keep only last HISTORY_DEPTH entries
+            if len(self._cpu_history[s.id]) > HISTORY_DEPTH:
+                self._cpu_history[s.id] = self._cpu_history[s.id][-HISTORY_DEPTH:]
+            if len(self._mem_history[s.id]) > HISTORY_DEPTH:
+                self._mem_history[s.id] = self._mem_history[s.id][-HISTORY_DEPTH:]

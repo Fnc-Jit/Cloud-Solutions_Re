@@ -53,8 +53,8 @@ HF_TOKEN: str = os.environ.get("HF_TOKEN", "")
 ENV_BASE_URL: str = os.environ.get("ENV_BASE_URL", "http://localhost:8000")
 
 # Evaluation parameters — synced with engine.py MAX_STEPS
-MAX_STEPS: int = 15
-TASKS: List[str] = ["easy", "medium", "hard"]
+MAX_STEPS: int = 10
+TASKS: List[str] = ["easy", "medium", "hard", "green"]
 LLM_MAX_RETRIES: int = 3
 
 
@@ -92,13 +92,17 @@ You are an expert cloud infrastructure engineer managing a fleet of AWS servers.
 Your goal is to optimize costs while preventing SLA breaches (any server hitting 100% CPU).
 
 You will receive a JSON observation containing:
-- servers: list of server objects with id, type (AWS instance type), cpu_util, memory_util, cost_per_hour, status
+- servers: list of server objects with:
+  - id, type (AWS instance type), cpu_util, memory_util, cost_per_hour, status
+  - cpu_history: last 3 steps of CPU utilisation (use to detect trends!)
+  - memory_history: last 3 steps of memory utilisation
 - traffic_load: global traffic percentage (0-100)
 - spike_detected: whether a traffic spike is occurring
 - incidents: list of past SLA breaches
 - budget_remaining: remaining budget in USD
 - time_step: current step number
 - inbox: messages from stakeholders (CTO, Marketing, Ops, SRE, etc.)
+- carbon_kwh: cumulative carbon emissions (lower is better for GreenOps tasks)
 
 You MUST respond with ONLY a valid JSON object matching this exact schema:
 {
@@ -116,6 +120,8 @@ Strategy guide:
 - Never let any running server reach 100% CPU — that's an instant SLA breach with catastrophic penalty.
 - Always respond to inbox messages concisely in the reply field to earn human-in-the-loop credit.
 - Only one action per step. Choose the most impactful action first.
+- Use cpu_history to detect TRENDS — if CPU is rising across 3 steps, act preemptively.
+- For GreenOps tasks: terminate high-carbon x86 instances (c5, m5) and keep efficient ARM (r6g) instances.
 
 IMPORTANT: Respond with ONLY the JSON object. No explanation, no markdown, no extra text.
 """
@@ -237,9 +243,17 @@ def run_task(task_id: str) -> float:
         if reply_preview:
             print(f"  Reply:  \"{reply_preview}...\"")
 
-        resp = http.post(f"{ENV_BASE_URL}/step", json=action)
-        resp.raise_for_status()
-        result = resp.json()
+        try:
+            resp = http.post(f"{ENV_BASE_URL}/step", json=action)
+            resp.raise_for_status()
+            result = resp.json()
+        except Exception as step_exc:
+            print(f"  [Step Error] {step_exc} — sending IGNORE")
+            # Re-try with a safe IGNORE action to keep episode alive
+            safe_action = {"command": "IGNORE", "target_id": None, "reply": ""}
+            resp = http.post(f"{ENV_BASE_URL}/step", json=safe_action)
+            resp.raise_for_status()
+            result = resp.json()
         obs = result["observation"]
         done = result["done"]
         reward = result["reward"]
@@ -270,6 +284,11 @@ def main() -> None:
     print(f"  Env:         {ENV_BASE_URL}")
     print(f"  Max Steps:   {MAX_STEPS}")
     print(f"  LLM Retries: {LLM_MAX_RETRIES}")
+    print()
+    print("  ┌──────────────────────────────────────────────────┐")
+    print(f"  │  📊 Live Dashboard: {ENV_BASE_URL}/dashboard      │")
+    print("  │  Open in browser to watch the agent in action!  │")
+    print("  └──────────────────────────────────────────────────┘")
 
     scores: Dict[str, float] = {}
     for task_id in TASKS:
