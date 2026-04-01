@@ -113,6 +113,18 @@ async def log_requests(request: Request, call_next):
 # Endpoints
 # ---------------------------------------------------------------------------
 
+@app.get("/")
+async def root() -> JSONResponse:
+    return JSONResponse(
+        content={
+            "app": "CloudFinOps-Env",
+            "version": "1.0.0",
+            "status": "online",
+            "message": "Welcome to the CloudFinOps RL Environment! Use POST /reset to start a task.",
+            "endpoints": ["POST /reset", "POST /step", "GET /state"],
+        }
+    )
+
 @app.post("/reset", response_model=Observation)
 async def reset(req: ResetRequest) -> Observation:
     """Reset the environment for the given task and return the initial observation."""
