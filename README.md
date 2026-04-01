@@ -8,6 +8,7 @@
 [![Tests](https://img.shields.io/badge/tests-38%20passed-brightgreen.svg)]()
 
 ![CloudFinOps Dashboard](assets/dashboard.png)
+![CloudFinOps Dashboard Details](assets/dashboard_details.png)
 
 Built for the **Meta AI × Hugging Face OpenEnv Hackathon**. Agents manage a fleet of AWS-style servers, balancing cost, performance, carbon emissions, and stakeholder communication through a REST API.
 
