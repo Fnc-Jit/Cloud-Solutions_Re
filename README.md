@@ -2,7 +2,7 @@
 
 > **An RL environment combining cloud cost-optimization, SLA incident management, and carbon emissions tracking (GreenOps).**
 
-[![Validate](https://github.com/Fnc-Jit/cloudfinops-env/actions/workflows/validate.yml/badge.svg)](https://github.com/Fnc-Jit/cloudfinops-env/actions/workflows/validate.yml)
+[![Validate](https://github.com/Fnc-Jit/Cloud-Solutions_Re/actions/workflows/validate.yml/badge.svg)](https://github.com/Fnc-Jit/Cloud-Solutions_Re/actions/workflows/validate.yml)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-compatible-green.svg)](https://huggingface.co/openenv)
 [![Tests](https://img.shields.io/badge/tests-38%20passed-brightgreen.svg)]()
@@ -110,7 +110,7 @@ This lets LLM agents **detect trends** (e.g., "CPU rising 3 steps in a row → a
 
 ### 1. Clone & Configure
 ```bash
-git clone https://github.com/Fnc-Jit/cloudfinops-env.git
+git clone https://github.com/Fnc-Jit/Cloud-Solutions_Re.git
 cd cloudfinops-env
 cp .env.example .env
 # Edit .env with your API keys
