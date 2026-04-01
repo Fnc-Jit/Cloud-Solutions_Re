@@ -19,7 +19,7 @@ import sys
 import threading
 import time
 from contextlib import contextmanager
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 # Auto-load .env file if present (judges can use .env.example as a template)
 try:
@@ -212,61 +212,96 @@ def _call_llm(obs_json: str, error_context: str = "") -> Dict[str, Any]:
     return action
 
 
+def log_start(task: str, env: str, model: str) -> None:
+    print(f"[START] task={task} env={env} model={model}", flush=True)
+
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+    error_val = error if error else "null"
+    done_val = str(done).lower()
+    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}", flush=True)
+
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
+
+
 def run_task(task_id: str) -> float:
     print(f"\n{'=' * 60}")
     print(f"  Task: {task_id.upper()}")
     print(f"{'=' * 60}")
 
+    log_start(task=task_id, env="cloudfinops-env", model=MODEL_NAME)
+
     resp = http.post(f"{ENV_BASE_URL}/reset", json={"task_id": task_id})
     resp.raise_for_status()
     obs = resp.json()
 
-    for step_num in range(1, MAX_STEPS + 1):
-        obs_json = json.dumps(obs, indent=2)
-        budget = obs.get("budget_remaining", 0)
-        traffic = obs.get("traffic_load", 0)
-        n_running = sum(1 for s in obs.get("servers", []) if s.get("status") == "running")
-        print(f"\n--- Step {step_num}/{MAX_STEPS} ---")
-        print(f"  Budget: ${budget:.4f}  |  Traffic: {traffic}%  |  Running: {n_running} servers")
+    rewards_list: List[float] = []
+    steps_taken = 0
+    score = 0.0
+    done = False
 
-        try:
-            with _spinner("🤖 Asking LLM"):
-                action = _call_llm(obs_json)
-        except Exception as exc:
-            print(f"  [LLM Error after {LLM_MAX_RETRIES} retries] {exc} — sending IGNORE")
-            action = {"command": "IGNORE", "target_id": None, "reply": ""}
+    try:
+        for step_num in range(1, MAX_STEPS + 1):
+            obs_json = json.dumps(obs, indent=2)
+            budget = obs.get("budget_remaining", 0)
+            traffic = obs.get("traffic_load", 0)
+            n_running = sum(1 for s in obs.get("servers", []) if s.get("status") == "running")
+            print(f"\n--- Step {step_num}/{MAX_STEPS} ---")
+            print(f"  Budget: ${budget:.4f}  |  Traffic: {traffic}%  |  Running: {n_running} servers")
 
-        cmd = action.get("command", "IGNORE")
-        target = action.get("target_id", "N/A")
-        reply_preview = (action.get("reply", "") or "")[:50]
-        print(f"  Action: {cmd} -> {target}")
-        if reply_preview:
-            print(f"  Reply:  \"{reply_preview}...\"")
+            try:
+                with _spinner("🤖 Asking LLM"):
+                    action = _call_llm(obs_json)
+            except Exception as exc:
+                print(f"  [LLM Error after {LLM_MAX_RETRIES} retries] {exc} — sending IGNORE")
+                action = {"command": "IGNORE", "target_id": None, "reply": ""}
 
-        try:
-            resp = http.post(f"{ENV_BASE_URL}/step", json=action)
-            resp.raise_for_status()
-            result = resp.json()
-        except Exception as step_exc:
-            print(f"  [Step Error] {step_exc} — sending IGNORE")
-            # Re-try with a safe IGNORE action to keep episode alive
-            safe_action = {"command": "IGNORE", "target_id": None, "reply": ""}
-            resp = http.post(f"{ENV_BASE_URL}/step", json=safe_action)
-            resp.raise_for_status()
-            result = resp.json()
-        obs = result["observation"]
-        done = result["done"]
-        reward = result["reward"]
+            cmd = action.get("command", "IGNORE")
+            target = action.get("target_id", "N/A")
+            action_str = f"{cmd}({target})"
+            reply_preview = (action.get("reply", "") or "")[:50]
+            print(f"  Action: {cmd} -> {target}")
+            if reply_preview:
+                print(f"  Reply:  \"{reply_preview}...\"")
 
-        print(f"  Reward: {reward:+.1f}  |  Done: {done}")
+            error_msg = None
+            try:
+                resp = http.post(f"{ENV_BASE_URL}/step", json=action)
+                resp.raise_for_status()
+                result = resp.json()
+            except Exception as step_exc:
+                print(f"  [Step Error] {step_exc} — sending IGNORE")
+                error_msg = str(step_exc)
+                safe_action = {"command": "IGNORE", "target_id": None, "reply": ""}
+                resp = http.post(f"{ENV_BASE_URL}/step", json=safe_action)
+                resp.raise_for_status()
+                result = resp.json()
 
-        if done:
-            score = result.get("info", {}).get("grader_score", 0.0)
-            print(f"\n  ✅ FINAL SCORE: {score:.4f}")
-            return score
+            obs = result["observation"]
+            done = result["done"]
+            reward = result["reward"]
 
-    print("\n  ⚠️  Max steps reached.")
-    return 0.0
+            rewards_list.append(reward)
+            steps_taken = step_num
+
+            log_step(step=step_num, action=action_str, reward=reward, done=done, error=error_msg)
+            print(f"  Reward: {reward:+.1f}  |  Done: {done}")
+
+            if done:
+                score = result.get("info", {}).get("grader_score", 0.0)
+                print(f"\n  ✅ FINAL SCORE: {score:.4f}")
+                break
+
+        if not done:
+            print("\n  ⚠️  Max steps reached.")
+
+    finally:
+        # ALWAYS emit [END] — even on crash (hackathon requirement)
+        success = score > 0.0
+        log_end(success=success, steps=steps_taken, score=score, rewards=rewards_list)
+
+    return score
 
 
 def main() -> None:
